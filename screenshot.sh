@@ -1,5 +1,5 @@
 #!/bin/bash
-# Take a screenshot from the Waveshare AMOLED display via LVGL snapshot.
+# Take a screenshot from the display via LVGL snapshot.
 # Usage: ./screenshot.sh [output.png] [port]
 
 OUTPUT="${1:-screenshot.png}"
@@ -10,16 +10,22 @@ trap "rm -f '$TMPRAW'" EXIT
 
 echo "Taking screenshot from $PORT..."
 
-python3 - "$PORT" "$TMPRAW" << 'PYEOF'
+# Python script to capture raw data over serial
+READ_RESULT=$(python3 - "$PORT" "$TMPRAW" << 'PYEOF'
 import serial, sys
 
 port_path, raw_path = sys.argv[1], sys.argv[2]
 
-port = serial.Serial(port_path, 115200, timeout=10)
-port.reset_input_buffer()
-port.write(b"screenshot\n")
-port.flush()
+try:
+    port = serial.Serial(port_path, 115200, timeout=10)
+    port.reset_input_buffer()
+    port.write(b"screenshot\n")
+    port.flush()
+except Exception as e:
+    print(f"Error opening port: {e}", file=sys.stderr)
+    sys.exit(1)
 
+w, h = 0, 0
 while True:
     line = port.readline().decode("utf-8", errors="replace").strip()
     if line.startswith("SCREENSHOT_START"):
@@ -47,17 +53,22 @@ for _ in range(10):
         break
 
 port.close()
-print(f"Captured {w}x{h} ({len(data)} bytes)")
+print(f"{w}x{h}")
 PYEOF
+)
 
 if [ $? -ne 0 ]; then
     echo "Screenshot capture failed"
     exit 1
 fi
 
-ffmpeg -y -f rawvideo -pixel_format rgb565le -video_size 480x480 \
-    -i "$TMPRAW" -update 1 -frames:v 1 "$OUTPUT" 2>/dev/null || true
+# Get dimensions from python output
+DIMENSIONS=$READ_RESULT
+echo "Captured $DIMENSIONS"
 
+# Use ffmpeg to convert raw RGB565 to PNG
+ffmpeg -y -f rawvideo -pixel_format rgb565le -video_size "$DIMENSIONS" \
+    -i "$TMPRAW" -update 1 -frames:v 1 "$OUTPUT" 2>/dev/null || true
 
 if [ -f "$OUTPUT" ]; then
     echo "Saved: $OUTPUT"

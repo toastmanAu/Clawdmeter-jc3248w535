@@ -262,15 +262,17 @@ void setup() {
     Serial.println("{\"ready\":true}");
 
     Wire.begin(IIC_SDA, IIC_SCL);
-
-    gfx->begin();
-    gfx->fillScreen(0x0000);
+// Init display
+gfx->begin();
+gfx->fillScreen(0x0000);
 #ifdef JC3248W535
-    pinMode(LCD_BL, OUTPUT);
-    digitalWrite(LCD_BL, HIGH);
+// Backlight on GPIO 1 via PWM
+ledcAttach(LCD_BL, 5000, 8);
+ledcWrite(LCD_BL, 200); // ~80% brightness
 #else
-    gfx->setBrightness(200);
+gfx->setBrightness(200);
 #endif
+
 
     power_init();
     imu_init();

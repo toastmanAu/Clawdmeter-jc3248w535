@@ -4,13 +4,16 @@
 #include "logo.h"
 #include "icons.h"
 #include "display_cfg.h"
+#include "ble.h"
 
 // Custom fonts (scaled for 314 PPI, ~1.9x from original 165 PPI)
 LV_FONT_DECLARE(font_tiempos_56);
+LV_FONT_DECLARE(font_tiempos_34);
 LV_FONT_DECLARE(font_styrene_48);
 LV_FONT_DECLARE(font_styrene_28);
 LV_FONT_DECLARE(font_styrene_24);
 LV_FONT_DECLARE(font_styrene_20);
+LV_FONT_DECLARE(font_styrene_16);
 LV_FONT_DECLARE(font_mono_32);
 
 // Anthropic brand palette — design tokens live in theme.h
@@ -76,9 +79,7 @@ static const char* const spinner_frames[] = {
 #define SPINNER_COUNT 6
 #define SPINNER_PHASES (2 * (SPINNER_COUNT - 1))  // 10: ping-pong 0..5..0
 
-// Per-frame hold time. Modeled on Claude Code's spinner (Cavalry triangle
-// oscillator, range 0..5, period 5s) — turn-around frames (0 and 5) appear
-// once per cycle, middle frames twice, so 0/5 read as held longer.
+// Per-frame hold time.
 static const uint16_t spinner_ms[SPINNER_COUNT] = {
     260, 130, 130, 130, 130, 260,
 };
@@ -136,7 +137,7 @@ static void format_reset_time(int mins, char* buf, size_t len) {
     }
 }
 
-// Forward decls — callbacks defined near ui_show_screen below
+// Forward decls
 static void global_click_cb(lv_event_t* e);
 static void ble_reset_click_cb(lv_event_t* e);
 
@@ -153,8 +154,6 @@ static lv_obj_t* make_panel(lv_obj_t* parent, int x, int y, int w, int h) {
     lv_obj_set_style_pad_top(panel, 10, 0);
     lv_obj_set_style_pad_bottom(panel, 10, 0);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
-    // Bubble click events up to the screen / usage_container so a tap anywhere
-    // on the panel fires the global click handler.
     lv_obj_add_flag(panel, LV_OBJ_FLAG_EVENT_BUBBLE);
     return panel;
 }
@@ -183,8 +182,6 @@ static void init_icon_dsc(lv_image_dsc_t* dsc, int w, int h, const uint16_t* dat
     dsc->data_size = w * h * 2;
 }
 
-// RGB565A8: planar — w*h RGB565 pixels followed by w*h alpha bytes.
-// Stride is RGB565-only (w*2); LVGL infers alpha plane location from header.
 static void init_icon_dsc_rgb565a8(lv_image_dsc_t* dsc, int w, int h, const uint8_t* data) {
     dsc->header.w = w;
     dsc->header.h = h;
@@ -209,7 +206,6 @@ static lv_obj_t* make_pill(lv_obj_t* parent, const char* text) {
     return lbl;
 }
 
-// ---- Battery icon initialization ----
 static void init_battery_icons(void) {
     init_icon_dsc_rgb565a8(&battery_dscs[0], ICON_BATTERY_W, ICON_BATTERY_H, icon_battery_data);
     init_icon_dsc_rgb565a8(&battery_dscs[1], ICON_BATTERY_LOW_W, ICON_BATTERY_LOW_H, icon_battery_low_data);
@@ -228,7 +224,6 @@ static void init_battery_icons(void) {
 #define PANEL_GAP   16
 #endif
 
-// One Session/Weekly panel: big % label, pill on the right, bar, reset label.
 static void make_usage_panel(lv_obj_t* parent, int y, const char* pill_text,
                              lv_obj_t** out_pct, lv_obj_t** out_pill,
                              lv_obj_t** out_bar, lv_obj_t** out_reset) {
@@ -296,10 +291,43 @@ static void init_usage_screen(lv_obj_t* scr) {
 #ifdef JC3248W535
     lv_obj_set_style_text_font(lbl_anim, &font_styrene_24, 0);
     lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -5);
+
+    // Add touch buttons for HID functions
+    lv_obj_t* btn_voice = lv_button_create(usage_container);
+    lv_obj_set_size(btn_voice, 100, 44);
+    lv_obj_align(btn_voice, LV_ALIGN_BOTTOM_LEFT, MARGIN, -5);
+    lv_obj_set_style_bg_color(btn_voice, COL_PANEL, 0);
+    lv_obj_t* lbl_voice = lv_label_create(btn_voice);
+    lv_label_set_text(lbl_voice, "Voice");
+    lv_obj_center(lbl_voice);
+    lv_obj_add_event_cb(btn_voice, [](lv_event_t* e) {
+        lv_event_code_t code = lv_event_get_code(e);
+        if (code == LV_EVENT_PRESSED) ble_keyboard_press(0x2C, 0);
+        else if (code == LV_EVENT_RELEASED) ble_keyboard_release();
+    }, LV_EVENT_ALL, NULL);
+
+    lv_obj_t* btn_toggle = lv_button_create(usage_container);
+    lv_obj_set_size(btn_toggle, 100, 44);
+    lv_obj_align(btn_toggle, LV_ALIGN_BOTTOM_RIGHT, -MARGIN, -5);
+    lv_obj_set_style_bg_color(btn_toggle, COL_PANEL, 0);
+    lv_obj_t* lbl_toggle = lv_label_create(btn_toggle);
+    lv_label_set_text(lbl_toggle, "Toggle");
+    lv_obj_center(lbl_toggle);
+    lv_obj_add_event_cb(btn_toggle, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            ble_keyboard_press(0x2B, 0x02);
+            delay(50);
+            ble_keyboard_release();
+        }
+    }, LV_EVENT_CLICKED, NULL);
 #else
     lv_obj_set_style_text_font(lbl_anim, &font_mono_32, 0);
+    lv_obj_set_style_text_color(lbl_anim, COL_ACCENT, 0);
     lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -15);
 #endif
+
+    // Start hidden
+    lv_obj_add_flag(usage_container, LV_OBJ_FLAG_HIDDEN);
 }
 
 // ======== Bluetooth Screen ========
@@ -312,8 +340,8 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
     lv_obj_set_style_border_width(ble_container, 0, 0);
     lv_obj_set_style_pad_all(ble_container, 0, 0);
     lv_obj_clear_flag(ble_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(ble_container, global_click_cb, LV_EVENT_CLICKED, NULL);
 
-    // Title
     lv_obj_t* lbl_ble_title = lv_label_create(ble_container);
     lv_label_set_text(lbl_ble_title, "Bluetooth");
 #ifdef JC3248W535
@@ -324,14 +352,12 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
     lv_obj_set_style_text_color(lbl_ble_title, COL_TEXT, 0);
     lv_obj_align(lbl_ble_title, LV_ALIGN_TOP_MID, 16, TITLE_Y);
 
-    // Info panel
 #ifdef JC3248W535
     lv_obj_t* p_info = make_panel(ble_container, MARGIN, CONTENT_Y, CONTENT_W, 110);
 #else
     lv_obj_t* p_info = make_panel(ble_container, MARGIN, CONTENT_Y, CONTENT_W, 160);
 #endif
 
-    // Bluetooth icon + status row
     static lv_image_dsc_t icon_bt_dsc;
     init_icon_dsc(&icon_bt_dsc, ICON_BLUETOOTH_W, ICON_BLUETOOTH_H, icon_bluetooth_data);
 
@@ -372,7 +398,6 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
 #endif
     lv_obj_set_style_text_color(lbl_ble_mac, COL_DIM, 0);
 
-    // Reset Bluetooth tap zone
 #ifdef JC3248W535
     int reset_y = CONTENT_Y + 110 + 10;
     lv_obj_t* reset_zone = lv_obj_create(ble_container);
@@ -408,7 +433,6 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
 #endif
     lv_obj_set_style_text_color(reset_lbl, COL_DIM, 0);
 
-    // Attribution
     lv_obj_t* lbl_credit = lv_label_create(ble_container);
     lv_label_set_text(lbl_credit, "Built by @hermannbjorgvin");
 #ifdef JC3248W535
@@ -431,7 +455,6 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
 #endif
     lv_obj_set_style_text_color(lbl_credit2, COL_DIM, 0);
 
-    // Start hidden
     lv_obj_add_flag(ble_container, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -442,29 +465,25 @@ void ui_init(void) {
     lv_obj_set_style_bg_color(scr, COL_BG, 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    // Logo (shared, always visible, on top of all containers)
-    // Logo is RGB565A8 (planar: w*h RGB565 then w*h alpha) so it composites
-    // cleanly against whatever bg is behind it.
     init_icon_dsc_rgb565a8(&logo_dsc, LOGO_WIDTH, LOGO_HEIGHT, logo_data);
-
-    // Initialize battery icon descriptors
     init_battery_icons();
 
     init_usage_screen(scr);
     init_bluetooth_screen(scr);
     splash_init(scr);
 
-    // Splash is touch-toggled — tap anywhere on the splash dismisses it
     if (splash_get_root()) {
         lv_obj_add_event_cb(splash_get_root(), global_click_cb, LV_EVENT_CLICKED, NULL);
     }
 
-    // Logo on top of all containers (inset for rounded corners)
     logo_img = lv_image_create(scr);
     lv_image_set_src(logo_img, &logo_dsc);
     lv_obj_set_pos(logo_img, MARGIN, TITLE_Y - 10);
+    lv_obj_add_flag(logo_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(logo_img, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_cycle_screen();
+    }, LV_EVENT_CLICKED, NULL);
 
-    // Battery indicator on top of all containers (upper-right, inset)
     battery_img = lv_image_create(scr);
     lv_image_set_src(battery_img, &battery_dscs[0]);
     lv_obj_set_pos(battery_img, SCR_W - 48 - MARGIN, TITLE_Y);
@@ -474,8 +493,6 @@ void ui_update(const UsageData* data) {
     if (!data->valid) return;
 
     int s_pct = (int)(data->session_pct + 0.5f);
-
-    // Usage screen
     lv_label_set_text_fmt(lbl_session_pct, "%d%%", s_pct);
     lv_bar_set_value(bar_session, s_pct, LV_ANIM_ON);
     lv_obj_set_style_bg_color(bar_session, pct_color(data->session_pct), LV_PART_INDICATOR);
@@ -517,19 +534,12 @@ void ui_tick_anim(void) {
     }
 }
 
-static screen_t prev_non_splash_screen = SCREEN_USAGE;
-// Hide the battery indicator on the splash screen — the icon is visually
-// noisy over the pixel-art creature animations.
 static void apply_battery_visibility(void) {
     if (!battery_img) return;
     if (current_screen == SCREEN_SPLASH) lv_obj_add_flag(battery_img, LV_OBJ_FLAG_HIDDEN);
     else                                  lv_obj_clear_flag(battery_img, LV_OBJ_FLAG_HIDDEN);
 }
 
-// LVGL handles click debouncing internally. Screen-level handler fires when
-// no child consumed the event (children only consume if they have their own
-// event callback, e.g. the Reset Bluetooth zone). On BT screen we skip the
-// splash toggle so only the reset zone is interactive there.
 static void global_click_cb(lv_event_t* e) {
     (void)e;
     if (ui_get_current_screen() == SCREEN_BLUETOOTH) return;
@@ -540,6 +550,8 @@ static void ble_reset_click_cb(lv_event_t* e) {
     (void)e;
     ble_clear_bonds();
 }
+
+static screen_t prev_non_splash_screen = SCREEN_USAGE;
 
 void ui_show_screen(screen_t screen) {
     lv_obj_add_flag(usage_container, LV_OBJ_FLAG_HIDDEN);
@@ -553,7 +565,6 @@ void ui_show_screen(screen_t screen) {
     default: break;
     }
 
-    // Hide the logo overlay on the splash screen so the animation has a clean canvas
     if (logo_img) {
         if (screen == SCREEN_SPLASH) lv_obj_add_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
         else                          lv_obj_clear_flag(logo_img, LV_OBJ_FLAG_HIDDEN);
@@ -612,19 +623,12 @@ void ui_update_ble_status(ble_state_t state, const char* name, const char* mac) 
 
 void ui_update_battery(int percent, bool charging) {
     int idx;
-    if (charging) {
-        idx = 4;  // charging icon
-    } else if (percent < 0) {
-        idx = 0;  // no battery / unknown
-    } else if (percent <= 10) {
-        idx = 0;  // empty
-    } else if (percent <= 35) {
-        idx = 1;  // low
-    } else if (percent <= 75) {
-        idx = 2;  // medium
-    } else {
-        idx = 3;  // full
-    }
+    if (charging) idx = 4;
+    else if (percent < 0) idx = 0;
+    else if (percent <= 10) idx = 0;
+    else if (percent <= 35) idx = 1;
+    else if (percent <= 75) idx = 2;
+    else idx = 3;
     lv_image_set_src(battery_img, &battery_dscs[idx]);
     apply_battery_visibility();
 }

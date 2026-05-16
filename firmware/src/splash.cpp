@@ -2,6 +2,7 @@
 #include "splash_animations.h"
 #include "theme.h"
 #include "usage_rate.h"
+#include "display_cfg.h"
 #include <Arduino.h>
 #include <string.h>
 #include <esp_heap_caps.h>
