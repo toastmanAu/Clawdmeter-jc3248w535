@@ -6,9 +6,13 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 
-// 20x20 grid scaled 24x to fill 480x480
+// 20x20 grid scaled to fill height (320 on JC3248W535, 480 on Waveshare)
 #define GRID         20
+#ifdef JC3248W535
+#define CELL         16
+#else
 #define CELL         24
+#endif
 #define CANVAS_W     (GRID * CELL)
 #define CANVAS_H     (GRID * CELL)
 
@@ -20,7 +24,7 @@ LV_FONT_DECLARE(font_styrene_28);
 static lv_obj_t *splash_container = NULL;
 static lv_obj_t *canvas = NULL;
 static lv_obj_t *label_status = NULL;     // shown only when no animations loaded
-static uint16_t *canvas_buf = NULL;        // 480x480 RGB565 (PSRAM)
+static uint16_t *canvas_buf = NULL;        // RGB565 (PSRAM)
 
 static uint16_t cur_anim = 0;
 static uint16_t cur_frame = 0;
@@ -99,7 +103,7 @@ void splash_init(lv_obj_t *parent) {
     }
 
     splash_container = lv_obj_create(parent);
-    lv_obj_set_size(splash_container, 480, 480);
+    lv_obj_set_size(splash_container, LCD_WIDTH, LCD_HEIGHT);
     lv_obj_set_pos(splash_container, 0, 0);
     lv_obj_set_style_bg_color(splash_container, THEME_BG, 0);
     lv_obj_set_style_bg_opa(splash_container, LV_OPA_COVER, 0);

@@ -25,12 +25,12 @@ LV_FONT_DECLARE(font_mono_32);
 #define COL_RED       THEME_RED
 #define COL_BAR_BG    THEME_BAR_BG
 
-// ---- Layout constants for 480x480 (scaled for 2.16" high-DPI + rounded corners) ----
+// ---- Layout constants for 480x320 (landscape) ----
 #define SCR_W         480
-#define SCR_H         480
+#define SCR_H         LCD_HEIGHT    // 320 on JC3248W535, 480 on Waveshare
 #define MARGIN        20    // wider margin for rounded display corners
-#define TITLE_Y       30
-#define CONTENT_Y     100
+#define TITLE_Y       20
+#define CONTENT_Y     75
 #define CONTENT_W     (SCR_W - 2 * MARGIN)   // 440
 
 // ---- Usage screen widgets ----
@@ -150,8 +150,8 @@ static lv_obj_t* make_panel(lv_obj_t* parent, int x, int y, int w, int h) {
     lv_obj_set_style_border_width(panel, 0, 0);
     lv_obj_set_style_pad_left(panel, 16, 0);
     lv_obj_set_style_pad_right(panel, 16, 0);
-    lv_obj_set_style_pad_top(panel, 12, 0);
-    lv_obj_set_style_pad_bottom(panel, 12, 0);
+    lv_obj_set_style_pad_top(panel, 10, 0);
+    lv_obj_set_style_pad_bottom(panel, 10, 0);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
     // Bubble click events up to the screen / usage_container so a tap anywhere
     // on the panel fires the global click handler.
@@ -204,8 +204,8 @@ static lv_obj_t* make_pill(lv_obj_t* parent, const char* text) {
     lv_obj_set_style_radius(lbl, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_left(lbl, 18, 0);
     lv_obj_set_style_pad_right(lbl, 18, 0);
-    lv_obj_set_style_pad_top(lbl, 6, 0);
-    lv_obj_set_style_pad_bottom(lbl, 6, 0);
+    lv_obj_set_style_pad_top(lbl, 4, 0);
+    lv_obj_set_style_pad_bottom(lbl, 4, 0);
     return lbl;
 }
 
@@ -218,14 +218,17 @@ static void init_battery_icons(void) {
     init_icon_dsc_rgb565a8(&battery_dscs[4], ICON_BATTERY_CHARGING_W, ICON_BATTERY_CHARGING_H, icon_battery_charging_data);
 }
 
-// ======== Usage Screen (480x480) ========
+// ======== Usage Screen ========
 
+#ifdef JC3248W535
+#define PANEL_H     100
+#define PANEL_GAP   10
+#else
 #define PANEL_H     150
 #define PANEL_GAP   16
+#endif
 
 // One Session/Weekly panel: big % label, pill on the right, bar, reset label.
-// Pill y=1: symmetric inside the panel — panel-outer-top → pill-top equals
-// pill-bottom → bar-top (pill height 42 + panel pad_top 12 + bar y=56).
 static void make_usage_panel(lv_obj_t* parent, int y, const char* pill_text,
                              lv_obj_t** out_pct, lv_obj_t** out_pill,
                              lv_obj_t** out_bar, lv_obj_t** out_reset) {
@@ -233,20 +236,32 @@ static void make_usage_panel(lv_obj_t* parent, int y, const char* pill_text,
 
     *out_pct = lv_label_create(panel);
     lv_label_set_text(*out_pct, "---%");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(*out_pct, &font_styrene_28, 0);
+#else
     lv_obj_set_style_text_font(*out_pct, &font_styrene_48, 0);
+#endif
     lv_obj_set_style_text_color(*out_pct, COL_TEXT, 0);
     lv_obj_set_pos(*out_pct, 0, 0);
 
     *out_pill = make_pill(panel, pill_text);
     lv_obj_align(*out_pill, LV_ALIGN_TOP_RIGHT, 0, 1);
 
+#ifdef JC3248W535
+    *out_bar = make_bar(panel, 0, 40, CONTENT_W - 32, 16);
+#else
     *out_bar = make_bar(panel, 0, 56, CONTENT_W - 32, 24);
+#endif
 
     *out_reset = lv_label_create(panel);
     lv_label_set_text(*out_reset, "---");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(*out_reset, &font_styrene_20, 0);
+    lv_obj_set_pos(*out_reset, 0, 64);
+#else
     lv_obj_set_style_text_font(*out_reset, &font_styrene_28, 0);
-    lv_obj_set_style_text_color(*out_reset, COL_DIM, 0);
     lv_obj_set_pos(*out_reset, 0, 94);
+#endif
 }
 
 static void init_usage_screen(lv_obj_t* scr) {
@@ -261,7 +276,11 @@ static void init_usage_screen(lv_obj_t* scr) {
 
     lbl_title = lv_label_create(usage_container);
     lv_label_set_text(lbl_title, "Usage");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_title, &font_tiempos_34, 0);
+#else
     lv_obj_set_style_text_font(lbl_title, &font_tiempos_56, 0);
+#endif
     lv_obj_set_style_text_color(lbl_title, COL_TEXT, 0);
     lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 16, TITLE_Y);
 
@@ -274,12 +293,16 @@ static void init_usage_screen(lv_obj_t* scr) {
 
     lbl_anim = lv_label_create(usage_container);
     lv_label_set_text(lbl_anim, "");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_anim, &font_styrene_24, 0);
+    lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -5);
+#else
     lv_obj_set_style_text_font(lbl_anim, &font_mono_32, 0);
-    lv_obj_set_style_text_color(lbl_anim, COL_ACCENT, 0);
     lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -15);
+#endif
 }
 
-// ======== Bluetooth Screen (480x480) ========
+// ======== Bluetooth Screen ========
 
 static void init_bluetooth_screen(lv_obj_t* scr) {
     ble_container = lv_obj_create(scr);
@@ -293,12 +316,20 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
     // Title
     lv_obj_t* lbl_ble_title = lv_label_create(ble_container);
     lv_label_set_text(lbl_ble_title, "Bluetooth");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_ble_title, &font_tiempos_34, 0);
+#else
     lv_obj_set_style_text_font(lbl_ble_title, &font_tiempos_56, 0);
+#endif
     lv_obj_set_style_text_color(lbl_ble_title, COL_TEXT, 0);
     lv_obj_align(lbl_ble_title, LV_ALIGN_TOP_MID, 16, TITLE_Y);
 
-    // Info panel (taller for 480x480)
+    // Info panel
+#ifdef JC3248W535
+    lv_obj_t* p_info = make_panel(ble_container, MARGIN, CONTENT_Y, CONTENT_W, 110);
+#else
     lv_obj_t* p_info = make_panel(ble_container, MARGIN, CONTENT_Y, CONTENT_W, 160);
+#endif
 
     // Bluetooth icon + status row
     static lv_image_dsc_t icon_bt_dsc;
@@ -310,27 +341,49 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
 
     lbl_ble_status = lv_label_create(p_info);
     lv_label_set_text(lbl_ble_status, "Initializing...");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_ble_status, &font_styrene_28, 0);
+    lv_obj_set_pos(lbl_ble_status, 56, 10);
+#else
     lv_obj_set_style_text_font(lbl_ble_status, &font_styrene_48, 0);
-    lv_obj_set_style_text_color(lbl_ble_status, COL_DIM, 0);
     lv_obj_set_pos(lbl_ble_status, 56, 2);
+#endif
+    lv_obj_set_style_text_color(lbl_ble_status, COL_DIM, 0);
 
     lbl_ble_device = lv_label_create(p_info);
     lv_label_set_text(lbl_ble_device, "Device: ---");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_ble_device, &font_styrene_24, 0);
+    lv_obj_set_pos(lbl_ble_device, 0, 48);
+#else
     lv_obj_set_style_text_font(lbl_ble_device, &font_styrene_28, 0);
-    lv_obj_set_style_text_color(lbl_ble_device, COL_DIM, 0);
     lv_obj_set_pos(lbl_ble_device, 0, 64);
+#endif
+    lv_obj_set_style_text_color(lbl_ble_device, COL_DIM, 0);
 
     lbl_ble_mac = lv_label_create(p_info);
     lv_label_set_text(lbl_ble_mac, "Address: ---");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_ble_mac, &font_styrene_24, 0);
+    lv_obj_set_pos(lbl_ble_mac, 0, 76);
+#else
     lv_obj_set_style_text_font(lbl_ble_mac, &font_styrene_28, 0);
-    lv_obj_set_style_text_color(lbl_ble_mac, COL_DIM, 0);
     lv_obj_set_pos(lbl_ble_mac, 0, 100);
+#endif
+    lv_obj_set_style_text_color(lbl_ble_mac, COL_DIM, 0);
 
-    // Reset Bluetooth tap zone with trash icon
+    // Reset Bluetooth tap zone
+#ifdef JC3248W535
+    int reset_y = CONTENT_Y + 110 + 10;
+    lv_obj_t* reset_zone = lv_obj_create(ble_container);
+    lv_obj_set_pos(reset_zone, MARGIN, reset_y);
+    lv_obj_set_size(reset_zone, CONTENT_W, 60);
+#else
     int reset_y = CONTENT_Y + 160 + 16;
     lv_obj_t* reset_zone = lv_obj_create(ble_container);
     lv_obj_set_pos(reset_zone, MARGIN, reset_y);
     lv_obj_set_size(reset_zone, CONTENT_W, 110);
+#endif
     lv_obj_set_style_bg_color(reset_zone, COL_PANEL, 0);
     lv_obj_set_style_bg_opa(reset_zone, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(reset_zone, 8, 0);
@@ -348,21 +401,35 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
 
     lv_obj_t* reset_lbl = lv_label_create(reset_zone);
     lv_label_set_text(reset_lbl, "Reset Bluetooth");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(reset_lbl, &font_styrene_24, 0);
+#else
     lv_obj_set_style_text_font(reset_lbl, &font_styrene_28, 0);
+#endif
     lv_obj_set_style_text_color(reset_lbl, COL_DIM, 0);
 
     // Attribution
     lv_obj_t* lbl_credit = lv_label_create(ble_container);
     lv_label_set_text(lbl_credit, "Built by @hermannbjorgvin");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_credit, &font_styrene_20, 0);
+    lv_obj_align(lbl_credit, LV_ALIGN_BOTTOM_MID, 0, -25);
+#else
     lv_obj_set_style_text_font(lbl_credit, &font_styrene_24, 0);
-    lv_obj_set_style_text_color(lbl_credit, COL_DIM, 0);
     lv_obj_align(lbl_credit, LV_ALIGN_BOTTOM_MID, 0, -46);
+#endif
+    lv_obj_set_style_text_color(lbl_credit, COL_DIM, 0);
 
     lv_obj_t* lbl_credit2 = lv_label_create(ble_container);
     lv_label_set_text(lbl_credit2, "Clawd animation by @amaanbuilds");
+#ifdef JC3248W535
+    lv_obj_set_style_text_font(lbl_credit2, &font_styrene_16, 0);
+    lv_obj_align(lbl_credit2, LV_ALIGN_BOTTOM_MID, 0, -8);
+#else
     lv_obj_set_style_text_font(lbl_credit2, &font_styrene_20, 0);
-    lv_obj_set_style_text_color(lbl_credit2, COL_DIM, 0);
     lv_obj_align(lbl_credit2, LV_ALIGN_BOTTOM_MID, 0, -20);
+#endif
+    lv_obj_set_style_text_color(lbl_credit2, COL_DIM, 0);
 
     // Start hidden
     lv_obj_add_flag(ble_container, LV_OBJ_FLAG_HIDDEN);

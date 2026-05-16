@@ -10,22 +10,35 @@
 #include "splash.h"
 #include "usage_rate.h"
 
+#ifdef JC3248W535
+// No physical buttons on JC3248W535
+#else
 // Physical buttons (global, screen-independent):
 //   BTN_BACK   (GPIO 0)  — left,  send Space (Claude Code voice mode push-to-talk)
 //   BTN_FWD    (GPIO 18) — right, send Shift+Tab (Claude Code mode toggle)
 //   AXP PWR    (PMU)     — middle, cycle screens; on splash, cycle animations
 #define BTN_BACK 0
 #define BTN_FWD  18
+#endif
 
 // ---- Hardware objects ----
+#ifdef JC3248W535
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
-Arduino_CO5300 *gfx = new Arduino_CO5300(
+Arduino_GFX *gfx = new Arduino_AXS15231B(
+    bus, LCD_RESET, 0 /* rotation */, false /* IPS */,
+    LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+#else
+Arduino_DataBus *bus = new Arduino_ESP32QSPI(
+    LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
+Arduino_CO5300 *gfx_co5300 = new Arduino_CO5300(
     bus, LCD_RESET, 0 /* rotation */,
     LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+Arduino_GFX *gfx = gfx_co5300;
 TouchDrvCST92xx touch;
 XPowersPMU pmu;
 SensorQMI8658 imu;
+#endif
 
 static UsageData usage = {};
 
@@ -39,6 +52,31 @@ static void IRAM_ATTR touch_isr(void) {
     touch_data_ready = true;
 }
 
+#ifdef JC3248W535
+static void touch_read() {
+    if (!touch_data_ready) return;
+    touch_data_ready = false;
+
+    // AXS15231 touch reading via I2C (address 0x3B)
+    Wire.beginTransmission(0x3B);
+    Wire.write(0x00);
+    if (Wire.endTransmission() != 0) return;
+
+    if (Wire.requestFrom(0x3B, 6) == 6) {
+        uint8_t data[6];
+        for (int i = 0; i < 6; i++) data[i] = Wire.read();
+        
+        uint8_t num_points = data[0] & 0x0F;
+        if (num_points > 0) {
+            touch_pressed = true;
+            touch_x = ((uint16_t)(data[1] & 0x0F) << 8) | data[2];
+            touch_y = ((uint16_t)(data[3] & 0x0F) << 8) | data[4];
+        } else {
+            touch_pressed = false;
+        }
+    }
+}
+#else
 static void touch_read() {
     if (!touch_data_ready) return;
     touch_data_ready = false;
@@ -53,13 +91,12 @@ static void touch_read() {
         touch_pressed = false;
     }
 }
+#endif
 
 // ---- LVGL draw buffers (PSRAM-backed, partial render) ----
 #define BUF_LINES 40
 static uint16_t *buf1 = nullptr;
 static uint16_t *buf2 = nullptr;
-// rot_buf for strip rotation — max size is 480×480 (full invalidation case)
-// but typical partial strips are much smaller
 static uint16_t *rot_buf = nullptr;
 
 // LVGL tick callback
@@ -67,28 +104,27 @@ static uint32_t my_tick(void) {
     return millis();
 }
 
-// Rotate a w×h strip and compute destination coordinates on the 480×480 display.
-// src pixels are in row-major order for the rectangle (sx, sy, w, h).
-// Output goes to rot_buf in row-major order for the destination rectangle.
+// Rotate a w×h strip (only used if imu_get_rotation() > 0)
 static void rotate_strip(const uint16_t *src, int32_t w, int32_t h,
                          int32_t sx, int32_t sy, uint8_t r,
                          int32_t *dx, int32_t *dy, int32_t *dw, int32_t *dh) {
-    const int S = LCD_WIDTH;  // 480
+    // Current rotation logic assumes square 480x480.
+    // For JC3248W535, we stay at rotation 0 for now.
+    const int S = LCD_WIDTH; 
 
     switch (r) {
-    case 1: { // 90° CW: (x,y) -> (S-1-y, x)
+    case 1: { // 90° CW
         *dw = h; *dh = w;
         *dx = S - sy - h;
         *dy = sx;
         for (int32_t y = 0; y < h; y++) {
             for (int32_t x = 0; x < w; x++) {
-                // src(x,y) -> dst(h-1-y, x)
                 rot_buf[x * h + (h - 1 - y)] = src[y * w + x];
             }
         }
         break;
     }
-    case 2: { // 180°: (x,y) -> (S-1-x, S-1-y)
+    case 2: { // 180°
         *dw = w; *dh = h;
         *dx = S - sx - w;
         *dy = S - sy - h;
@@ -99,13 +135,12 @@ static void rotate_strip(const uint16_t *src, int32_t w, int32_t h,
         }
         break;
     }
-    case 3: { // 270° CW: (x,y) -> (y, S-1-x)
+    case 3: { // 270° CW
         *dw = h; *dh = w;
         *dx = sy;
         *dy = S - sx - w;
         for (int32_t y = 0; y < h; y++) {
             for (int32_t x = 0; x < w; x++) {
-                // src(x,y) -> dst(y, w-1-x)
                 rot_buf[(w - 1 - x) * h + y] = src[y * w + x];
             }
         }
@@ -117,7 +152,7 @@ static void rotate_strip(const uint16_t *src, int32_t w, int32_t h,
     }
 }
 
-// LVGL flush callback — rotates partial strips and writes to display
+// LVGL flush callback
 static void my_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
     int32_t w = area->x2 - area->x1 + 1;
     int32_t h = area->y2 - area->y1 + 1;
@@ -154,7 +189,6 @@ static void my_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     }
 }
 
-// Parse a JSON line into UsageData
 static bool parse_json(const char* json, UsageData* out) {
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, json);
@@ -173,7 +207,6 @@ static bool parse_json(const char* json, UsageData* out) {
     return true;
 }
 
-// Serial command buffer
 #define CMD_BUF_SIZE 64
 static char cmd_buf[CMD_BUF_SIZE];
 static int cmd_pos = 0;
@@ -228,21 +261,29 @@ void setup() {
     delay(300);
     Serial.println("{\"ready\":true}");
 
-    // Init I2C (shared by touch + PMU)
     Wire.begin(IIC_SDA, IIC_SCL);
 
-    // Init display
     gfx->begin();
     gfx->fillScreen(0x0000);
+#ifdef JC3248W535
+    pinMode(LCD_BL, OUTPUT);
+    digitalWrite(LCD_BL, HIGH);
+#else
     gfx->setBrightness(200);
+#endif
 
-    // Init PMU
     power_init();
-
-    // Init IMU (accelerometer for auto-rotation)
     imu_init();
 
-    // Init touch
+#ifdef JC3248W535
+    pinMode(TP_RST, OUTPUT);
+    digitalWrite(TP_RST, LOW);
+    delay(10);
+    digitalWrite(TP_RST, HIGH);
+    delay(50);
+    attachInterrupt(TP_INT, touch_isr, FALLING);
+    Serial.println("Touch init OK (AXS15231)");
+#else
     touch.setPins(TP_RST, TP_INT);
     if (!touch.begin(Wire, CST9220_ADDR, IIC_SDA, IIC_SCL)) {
         Serial.println("Touch init failed");
@@ -253,16 +294,13 @@ void setup() {
         attachInterrupt(TP_INT, touch_isr, FALLING);
         Serial.println("Touch init OK");
     }
+#endif
 
-    // Init LVGL
     lv_init();
     lv_tick_set_cb(my_tick);
 
-    // Allocate PSRAM-backed partial render buffers
     buf1 = (uint16_t*)heap_caps_malloc(LCD_WIDTH * BUF_LINES * 2, MALLOC_CAP_SPIRAM);
     buf2 = (uint16_t*)heap_caps_malloc(LCD_WIDTH * BUF_LINES * 2, MALLOC_CAP_SPIRAM);
-    // rot_buf needs to hold the largest possible strip after rotation
-    // A 480×40 strip rotated 90° becomes 40×480, same pixel count
     rot_buf = (uint16_t*)heap_caps_malloc(LCD_WIDTH * BUF_LINES * 2, MALLOC_CAP_SPIRAM);
 
     lv_display_t* disp = lv_display_create(LCD_WIDTH, LCD_HEIGHT);
@@ -271,43 +309,37 @@ void setup() {
     lv_display_set_buffers(disp, buf1, buf2, LCD_WIDTH * BUF_LINES * 2,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
 
-    // CO5300 even-alignment rounder
+#ifndef JC3248W535
     lv_display_add_event_cb(disp, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
+#endif
 
     lv_indev_t* indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, my_touch_cb);
 
-    // Init BLE data channel
     ble_init();
 
-    // Physical buttons: back (GPIO 0) and forward (GPIO 18)
+#ifndef JC3248W535
     pinMode(BTN_BACK, INPUT_PULLUP);
     pinMode(BTN_FWD,  INPUT_PULLUP);
+#endif
 
-    // Build dashboard
     ui_init();
-
-    // Show initial BLE status on Bluetooth screen
     ui_update_ble_status(ble_get_state(), ble_get_device_name(), ble_get_mac_address());
-
-    // Show initial battery status
     ui_update_battery(power_battery_pct(), power_is_charging());
 
     ui_show_screen(SCREEN_SPLASH);
-
     Serial.println("Dashboard ready, waiting for data on BLE...");
 }
 
 static ble_state_t last_ble_state = BLE_STATE_INIT;
 
-// Brightness ramp state for rotation transition
-// On rotation change we blank the panel, force a full LVGL redraw at the
-// new orientation, then ramp brightness back up over ~125ms so the
-// transition reads as deliberate instead of as a glitch.
 static void handle_rotation_change(void) {
+#ifdef JC3248W535
+    return;
+#else
     static uint8_t last_rotation = 0;
-    static uint8_t  ramp_step = 0;  // 0=idle, 1-4=ramping
+    static uint8_t  ramp_step = 0;
     static uint32_t ramp_last = 0;
 
     uint8_t rot = imu_get_rotation();
@@ -328,6 +360,7 @@ static void handle_rotation_change(void) {
     gfx->setBrightness(levels[ramp_step - 1]);
     if (ramp_step >= 4) ramp_step = 0;
     else                ramp_step++;
+#endif
 }
 
 void loop() {
@@ -339,22 +372,19 @@ void loop() {
     imu_tick();
     splash_tick();
 
-    // Three-button input (global, screen-independent):
-    //   LEFT  (GPIO 0)  → Space (voice-mode push-to-talk; press & release tracked)
-    //   RIGHT (GPIO 18) → Shift+Tab (Claude Code mode toggle)
-    //   PWR   (AXP)     → cycle screens; on splash, cycle animations
+#ifndef JC3248W535
     {
         static bool back_was = false, fwd_was = false;
         bool back_now = (digitalRead(BTN_BACK) == LOW);
         bool fwd_now  = (digitalRead(BTN_FWD)  == LOW);
 
         if (back_now != back_was) {
-            if (back_now) ble_keyboard_press(0x2C, 0);  // HID Space, no mods
+            if (back_now) ble_keyboard_press(0x2C, 0);
             else          ble_keyboard_release();
             back_was = back_now;
         }
         if (fwd_now != fwd_was) {
-            if (fwd_now) ble_keyboard_press(0x2B, 0x02);  // HID Tab + LEFT_SHIFT
+            if (fwd_now) ble_keyboard_press(0x2B, 0x02);
             else         ble_keyboard_release();
             fwd_was = fwd_now;
         }
@@ -364,17 +394,18 @@ void loop() {
             else                                          ui_cycle_screen();
         }
     }
+#else
+    // On JC3248W535, we could use touch zones or long press for these functions
+#endif
 
     handle_rotation_change();
 
-    // Update BLE status on screen when state changes
     ble_state_t bs = ble_get_state();
     if (bs != last_ble_state) {
         last_ble_state = bs;
         ui_update_ble_status(bs, ble_get_device_name(), ble_get_mac_address());
     }
 
-    // Update battery indicator
     static int last_pct = -2;
     static bool last_charging = false;
     int pct = power_battery_pct();
@@ -385,18 +416,14 @@ void loop() {
         ui_update_battery(pct, charging);
     }
 
-    // Check for serial commands (screenshot, etc.)
     check_serial_cmd();
 
-    // Process incoming BLE data
     if (ble_has_data()) {
         if (parse_json(ble_get_data(), &usage)) {
             int g_before = usage_rate_group();
             usage_rate_sample(usage.session_pct);
             int g_after = usage_rate_group();
             if (g_after != g_before) {
-                Serial.printf("usage rate: group %d -> %d (s=%.2f%%)\n",
-                    g_before, g_after, usage.session_pct);
                 if (splash_is_active()) splash_pick_for_current_rate();
             }
             ui_update(&usage);
@@ -405,6 +432,5 @@ void loop() {
             ble_send_nack();
         }
     }
-
     delay(5);
 }

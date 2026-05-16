@@ -2,6 +2,7 @@
 #include "display_cfg.h"
 #include <Arduino.h>
 
+#ifndef JC3248W535
 // Poll and hysteresis timing
 #define IMU_POLL_MS       100    // read accel at ~10 Hz
 #define STABLE_TIME_MS    300    // orientation must be stable this long before rotating
@@ -29,8 +30,13 @@ static uint8_t accel_to_rotation(float ax, float ay) {
         return (ax > 0) ? 0 : 2;
     }
 }
+#endif
 
 void imu_init(void) {
+#ifdef JC3248W535
+    // No IMU on this board
+    Serial.println("IMU: JC3248W535 stubs");
+#else
     if (!imu.begin(Wire, QMI8658_L_SLAVE_ADDRESS, IIC_SDA, IIC_SCL)) {
         Serial.println("QMI8658 init failed");
         return;
@@ -44,9 +50,11 @@ void imu_init(void) {
     imu.enableAccelerometer();
 
     imu_ok = true;
+#endif
 }
 
 void imu_tick(void) {
+#ifndef JC3248W535
     if (!imu_ok) return;
 
     uint32_t now = millis();
@@ -69,8 +77,13 @@ void imu_tick(void) {
         current_rotation = target;
         Serial.printf("Rotation: %d\n", current_rotation);
     }
+#endif
 }
 
 uint8_t imu_get_rotation(void) {
+#ifdef JC3248W535
+    return 0; // fixed rotation
+#else
     return current_rotation;
+#endif
 }
