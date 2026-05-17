@@ -3,6 +3,7 @@
 #include <lvgl.h>
 #include "logo.h"
 #include "icons.h"
+#include "header_img.h"
 #include "display_cfg.h"
 #include "ble.h"
 
@@ -63,6 +64,7 @@ static lv_image_dsc_t battery_dscs[5];  // empty, low, medium, full, charging
 
 // ---- Shared ----
 static lv_image_dsc_t logo_dsc;
+static lv_image_dsc_t header_dsc;
 static screen_t current_screen = SCREEN_USAGE;
 
 // Animation state
@@ -271,15 +273,9 @@ static void init_usage_screen(lv_obj_t* scr) {
     lv_obj_clear_flag(usage_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(usage_container, global_click_cb, LV_EVENT_CLICKED, NULL);
 
-    lbl_title = lv_label_create(usage_container);
-    lv_label_set_text(lbl_title, "Usage");
-#ifdef JC3248W535
-    lv_obj_set_style_text_font(lbl_title, &font_tiempos_34, 0);
-#else
-    lv_obj_set_style_text_font(lbl_title, &font_tiempos_56, 0);
-#endif
-    lv_obj_set_style_text_color(lbl_title, COL_TEXT, 0);
-    lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 16, TITLE_Y);
+    lv_obj_t* header_img_obj = lv_image_create(usage_container);
+    lv_image_set_src(header_img_obj, &header_dsc);
+    lv_obj_set_pos(header_img_obj, 0, 0);
 
     make_usage_panel(usage_container, CONTENT_Y, "Current",
                      &lbl_session_pct, &lbl_session_label,
@@ -471,6 +467,7 @@ void ui_init(void) {
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
     init_icon_dsc_rgb565a8(&logo_dsc, LOGO_WIDTH, LOGO_HEIGHT, logo_data);
+    init_icon_dsc_rgb565a8(&header_dsc, HEADER_W, HEADER_H, header_data);
     init_battery_icons();
 
     init_usage_screen(scr);

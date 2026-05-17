@@ -7,10 +7,10 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 
-// 20x20 grid scaled to fill height (320 on JC3248W535, 480 on Waveshare)
+// 20x20 grid scaled (Original 24x for 480x480, 14x for 320x480)
 #define GRID         20
 #ifdef JC3248W535
-#define CELL         16
+#define CELL         14
 #else
 #define CELL         24
 #endif
@@ -86,7 +86,7 @@ static void render_frame(const uint8_t *cells, const uint16_t *palette) {
             memcpy(&canvas_buf[(gy * CELL + dy) * CANVAS_W], row, CANVAS_W * 2);
         }
     }
-    if (canvas) lv_obj_invalidate(canvas);
+    if (splash_container) lv_obj_invalidate(splash_container);
 }
 
 static void show_placeholder() {
