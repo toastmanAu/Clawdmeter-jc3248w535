@@ -11,29 +11,18 @@
 #include "usage_rate.h"
 
 #ifdef JC3248W535
-// No physical buttons on JC3248W535
-#else
-// Physical buttons (global, screen-independent):
-//   BTN_BACK   (GPIO 0)  — left,  send Space (Claude Code voice mode push-to-talk)
-//   BTN_FWD    (GPIO 18) — right, send Shift+Tab (Claude Code mode toggle)
-//   AXP PWR    (PMU)     — middle, cycle screens; on splash, cycle animations
-#define BTN_BACK 0
-#define BTN_FWD  18
-#endif
+// Verified stable 20MHz Portrait Driver
+Arduino_DataBus *bus = new Arduino_ESP32QSPI(
+    LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3, 20000000L);
 
-// ---- Hardware objects ----
-#ifdef JC3248W535
-Arduino_DataBus *bus = new Arduino_ESP32QSPI(
-    LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
+// Native Portrait (320x480). IPS=false (Verified correct color).
 Arduino_GFX *gfx = new Arduino_AXS15231B(
-    bus, LCD_RESET, 0 /* rotation */, false /* IPS */,
-    LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+    bus, GFX_NOT_DEFINED, 0 /* rotation 0 */, false /* IPS */,
+    320, 480, 0, 0, 0, 0);
 #else
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
-Arduino_CO5300 *gfx_co5300 = new Arduino_CO5300(
-    bus, LCD_RESET, 0 /* rotation */,
-    LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+Arduino_CO5300 *gfx_co5300 = new Arduino_CO5300(bus, LCD_RESET, 0, LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
 Arduino_GFX *gfx = gfx_co5300;
 TouchDrvCST92xx touch;
 XPowersPMU pmu;
@@ -41,328 +30,127 @@ SensorQMI8658 imu;
 #endif
 
 static UsageData usage = {};
-
-// ---- Touch interrupt + shared state ----
 static volatile bool     touch_pressed = false;
 static volatile uint16_t touch_x = 0;
 static volatile uint16_t touch_y = 0;
-static volatile bool     touch_data_ready = false;
-
-static void IRAM_ATTR touch_isr(void) {
-    touch_data_ready = true;
-}
+static uint8_t           touch_addr = 0x3B;
 
 #ifdef JC3248W535
 static void touch_read() {
-    if (!touch_data_ready) return;
-    touch_data_ready = false;
+    static uint32_t last_poll = 0;
+    if (millis() - last_poll < 20) return;
+    last_poll = millis();
 
-    // AXS15231 touch reading via I2C (address 0x3B)
-    Wire.beginTransmission(0x3B);
-    Wire.write(0x00);
-    if (Wire.endTransmission() != 0) return;
+    // AXS15231B Magic Command to request data
+    static const uint8_t magic[] = {0xb5, 0xab, 0xa5, 0x5a, 0x00, 0x00, 0x00, 0x08};
+    
+    Wire.beginTransmission(touch_addr);
+    Wire.write(magic, 8);
+    Wire.endTransmission();
+    delayMicroseconds(500); // Small pause for chip processing
 
-    if (Wire.requestFrom(0x3B, 6) == 6) {
-        uint8_t data[6];
-        for (int i = 0; i < 6; i++) data[i] = Wire.read();
-        
-        uint8_t num_points = data[0] & 0x0F;
-        if (num_points > 0) {
-            touch_pressed = true;
-            touch_x = ((uint16_t)(data[1] & 0x0F) << 8) | data[2];
-            touch_y = ((uint16_t)(data[3] & 0x0F) << 8) | data[4];
+    if (Wire.requestFrom(touch_addr, (uint8_t)8) == 8) {
+        uint8_t data[8];
+        for (int i = 0; i < 8; i++) data[i] = Wire.read();
+
+        // Parse AXS15231B based on raw HEX dump
+        if (data[0] == 0x00 && data[1] > 0) {
+            uint8_t event = data[2] >> 4;
+            if (event == 4) { 
+                // 0x40 = Release Event
+                touch_pressed = false;
+            } else {
+                // 0x00 = Down, 0x80 = Contact
+                touch_pressed = true;
+                
+                // Raw values are ALREADY in Native Portrait Pixels (0-319, 0-479)
+                uint16_t tx = ((uint16_t)(data[2] & 0x0F) << 8) | data[3];
+                uint16_t ty = ((uint16_t)(data[4] & 0x0F) << 8) | data[5];
+                
+                // Map Native Portrait to Manual Rotation 3 Landscape
+                touch_x = (ty < 480) ? (479 - ty) : 0;
+                touch_y = tx;
+            }
         } else {
             touch_pressed = false;
         }
     }
 }
-#else
-static void touch_read() {
-    if (!touch_data_ready) return;
-    touch_data_ready = false;
-
-    int16_t tx[5], ty[5];
-    uint8_t n = touch.getPoint(tx, ty, touch.getSupportTouchPoint());
-    if (n > 0) {
-        touch_pressed = true;
-        touch_x = (uint16_t)tx[0];
-        touch_y = (uint16_t)ty[0];
-    } else {
-        touch_pressed = false;
-    }
-}
 #endif
 
-// ---- LVGL draw buffers (PSRAM-backed, partial render) ----
-#define BUF_LINES 40
 static uint16_t *buf1 = nullptr;
-static uint16_t *buf2 = nullptr;
 static uint16_t *rot_buf = nullptr;
 
-// LVGL tick callback
-static uint32_t my_tick(void) {
-    return millis();
-}
-
-// Rotate a w×h strip (only used if imu_get_rotation() > 0)
-static void rotate_strip(const uint16_t *src, int32_t w, int32_t h,
-                         int32_t sx, int32_t sy, uint8_t r,
-                         int32_t *dx, int32_t *dy, int32_t *dw, int32_t *dh) {
-    // Current rotation logic assumes square 480x480.
-    // For JC3248W535, we stay at rotation 0 for now.
-    const int S = LCD_WIDTH; 
-
-    switch (r) {
-    case 1: { // 90° CW
-        *dw = h; *dh = w;
-        *dx = S - sy - h;
-        *dy = sx;
-        for (int32_t y = 0; y < h; y++) {
-            for (int32_t x = 0; x < w; x++) {
-                rot_buf[x * h + (h - 1 - y)] = src[y * w + x];
-            }
-        }
-        break;
-    }
-    case 2: { // 180°
-        *dw = w; *dh = h;
-        *dx = S - sx - w;
-        *dy = S - sy - h;
-        for (int32_t y = 0; y < h; y++) {
-            for (int32_t x = 0; x < w; x++) {
-                rot_buf[(h - 1 - y) * w + (w - 1 - x)] = src[y * w + x];
-            }
-        }
-        break;
-    }
-    case 3: { // 270° CW
-        *dw = h; *dh = w;
-        *dx = sy;
-        *dy = S - sx - w;
-        for (int32_t y = 0; y < h; y++) {
-            for (int32_t x = 0; x < w; x++) {
-                rot_buf[(w - 1 - x) * h + y] = src[y * w + x];
-            }
-        }
-        break;
-    }
-    default:
-        *dx = sx; *dy = sy; *dw = w; *dh = h;
-        break;
-    }
-}
-
-// LVGL flush callback
 static void my_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
     int32_t w = area->x2 - area->x1 + 1;
     int32_t h = area->y2 - area->y1 + 1;
     uint16_t *src = (uint16_t*)px_map;
-    uint8_t r = imu_get_rotation();
 
-    if (r == 0) {
-        gfx->draw16bitRGBBitmap(area->x1, area->y1, src, w, h);
-    } else {
-        int32_t dx, dy, dw, dh;
-        rotate_strip(src, w, h, area->x1, area->y1, r, &dx, &dy, &dw, &dh);
-        gfx->draw16bitRGBBitmap(dx, dy, rot_buf, dw, dh);
+    // Manual Pixel Rotation: 270 deg clockwise (Rotation 3)
+    for (int32_t y = 0; y < h; y++) {
+        for (int32_t x = 0; x < w; x++) {
+            int32_t dx = y;
+            int32_t dy = 480 - x - 1;
+            rot_buf[dy * 320 + dx] = src[y * w + x];
+        }
     }
+    
+    gfx->draw16bitRGBBitmap(0, 0, rot_buf, 320, 480);
+    gfx->flush();
     lv_display_flush_ready(disp);
 }
 
-// CO5300 requires even-aligned flush regions
 static void rounder_cb(lv_event_t* e) {
     lv_area_t *area = (lv_area_t*)lv_event_get_param(e);
-    area->x1 = area->x1 & ~1;
-    area->y1 = area->y1 & ~1;
-    area->x2 = area->x2 | 1;
-    area->y2 = area->y2 | 1;
-}
-
-// LVGL touch callback
-static void my_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
-    if (touch_pressed) {
-        data->point.x = touch_x;
-        data->point.y = touch_y;
-        data->state = LV_INDEV_STATE_PRESSED;
-    } else {
-        data->state = LV_INDEV_STATE_RELEASED;
-    }
-}
-
-static bool parse_json(const char* json, UsageData* out) {
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, json);
-    if (err) {
-        Serial.printf("JSON parse error: %s\n", err.c_str());
-        return false;
-    }
-
-    out->session_pct = doc["s"] | 0.0f;
-    out->session_reset_mins = doc["sr"] | -1;
-    out->weekly_pct = doc["w"] | 0.0f;
-    out->weekly_reset_mins = doc["wr"] | -1;
-    strlcpy(out->status, doc["st"] | "unknown", sizeof(out->status));
-    out->ok = doc["ok"] | false;
-    out->valid = true;
-    return true;
-}
-
-#define CMD_BUF_SIZE 64
-static char cmd_buf[CMD_BUF_SIZE];
-static int cmd_pos = 0;
-
-static void send_screenshot() {
-    const uint32_t w = LCD_WIDTH, h = LCD_HEIGHT;
-    const uint32_t row_bytes = w * 2;
-    const uint32_t buf_size = row_bytes * h;
-    uint8_t* sbuf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
-    if (!sbuf) {
-        Serial.println("SCREENSHOT_ERR");
-        return;
-    }
-
-    lv_draw_buf_t draw_buf;
-    lv_draw_buf_init(&draw_buf, w, h, LV_COLOR_FORMAT_RGB565, row_bytes, sbuf, buf_size);
-
-    lv_result_t res = lv_snapshot_take_to_draw_buf(lv_screen_active(), LV_COLOR_FORMAT_RGB565, &draw_buf);
-    if (res != LV_RESULT_OK) {
-        heap_caps_free(sbuf);
-        Serial.println("SCREENSHOT_ERR");
-        return;
-    }
-
-    Serial.printf("SCREENSHOT_START %lu %lu %lu\n", (unsigned long)w, (unsigned long)h, (unsigned long)buf_size);
-    Serial.flush();
-    Serial.write(sbuf, buf_size);
-    Serial.flush();
-    Serial.println();
-    Serial.println("SCREENSHOT_END");
-
-    heap_caps_free(sbuf);
-}
-
-static void check_serial_cmd() {
-    while (Serial.available()) {
-        char c = Serial.read();
-        if (c == '\n' || c == '\r') {
-            cmd_buf[cmd_pos] = '\0';
-            if (strcmp(cmd_buf, "screenshot") == 0) {
-                send_screenshot();
-            }
-            cmd_pos = 0;
-        } else if (cmd_pos < CMD_BUF_SIZE - 1) {
-            cmd_buf[cmd_pos++] = c;
-        }
-    }
+    area->x1 &= ~7; area->y1 &= ~7;
+    area->x2 = (area->x2 + 8) & ~7;
+    area->y2 = (area->y2 + 8) & ~7;
 }
 
 void setup() {
     Serial.begin(115200);
-    delay(300);
-    Serial.println("{\"ready\":true}");
+    delay(2000);
+    Serial.println("\n--- Clawdmeter: Raw Touch Packet Sniffer ---");
+
+    pinMode(LCD_BL, OUTPUT);
+    digitalWrite(LCD_BL, HIGH);
+
+    pinMode(12, OUTPUT); digitalWrite(12, LOW);
+    delay(150);
+    digitalWrite(12, HIGH);
+    delay(200);
 
     Wire.begin(IIC_SDA, IIC_SCL);
-// Init display
-gfx->begin();
-gfx->fillScreen(0x0000);
-#ifdef JC3248W535
-// Backlight on GPIO 1 via PWM
-ledcAttach(LCD_BL, 5000, 8);
-ledcWrite(LCD_BL, 200); // ~80% brightness
-#else
-gfx->setBrightness(200);
-#endif
 
-
-    power_init();
-    imu_init();
-
-#ifdef JC3248W535
-    pinMode(TP_RST, OUTPUT);
-    digitalWrite(TP_RST, LOW);
-    delay(10);
-    digitalWrite(TP_RST, HIGH);
-    delay(50);
-    attachInterrupt(TP_INT, touch_isr, FALLING);
-    Serial.println("Touch init OK (AXS15231)");
-#else
-    touch.setPins(TP_RST, TP_INT);
-    if (!touch.begin(Wire, CST9220_ADDR, IIC_SDA, IIC_SCL)) {
-        Serial.println("Touch init failed");
-    } else {
-        touch.setMaxCoordinates(LCD_WIDTH, LCD_HEIGHT);
-        touch.setSwapXY(true);
-        touch.setMirrorXY(true, false);
-        attachInterrupt(TP_INT, touch_isr, FALLING);
-        Serial.println("Touch init OK");
-    }
-#endif
+    if (!gfx->begin()) Serial.println("GFX Begin Failed");
+    gfx->fillScreen(0x0000);
+    gfx->flush();
 
     lv_init();
-    lv_tick_set_cb(my_tick);
+    lv_tick_set_cb([](){ return (uint32_t)millis(); });
 
-    buf1 = (uint16_t*)heap_caps_malloc(LCD_WIDTH * BUF_LINES * 2, MALLOC_CAP_SPIRAM);
-    buf2 = (uint16_t*)heap_caps_malloc(LCD_WIDTH * BUF_LINES * 2, MALLOC_CAP_SPIRAM);
-    rot_buf = (uint16_t*)heap_caps_malloc(LCD_WIDTH * BUF_LINES * 2, MALLOC_CAP_SPIRAM);
-
-    lv_display_t* disp = lv_display_create(LCD_WIDTH, LCD_HEIGHT);
+    buf1 = (uint16_t*)heap_caps_malloc(480 * 320 * 2, MALLOC_CAP_SPIRAM);
+    rot_buf = (uint16_t*)heap_caps_malloc(480 * 320 * 2, MALLOC_CAP_SPIRAM);
+    
+    lv_display_t* disp = lv_display_create(480, 320);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(disp, my_flush_cb);
-    lv_display_set_buffers(disp, buf1, buf2, LCD_WIDTH * BUF_LINES * 2,
-                           LV_DISPLAY_RENDER_MODE_PARTIAL);
-
-#ifndef JC3248W535
+    lv_display_set_buffers(disp, buf1, nullptr, 480 * 320 * 2, LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_add_event_cb(disp, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
-#endif
 
     lv_indev_t* indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(indev, my_touch_cb);
+    lv_indev_set_read_cb(indev, [](lv_indev_t* indev, lv_indev_data_t* data) {
+        if (touch_pressed) {
+            data->point.x = touch_x; data->point.y = touch_y;
+            data->state = LV_INDEV_STATE_PRESSED;
+        } else data->state = LV_INDEV_STATE_RELEASED;
+    });
 
     ble_init();
-
-#ifndef JC3248W535
-    pinMode(BTN_BACK, INPUT_PULLUP);
-    pinMode(BTN_FWD,  INPUT_PULLUP);
-#endif
-
     ui_init();
-    ui_update_ble_status(ble_get_state(), ble_get_device_name(), ble_get_mac_address());
-    ui_update_battery(power_battery_pct(), power_is_charging());
-
-    ui_show_screen(SCREEN_SPLASH);
-    Serial.println("Dashboard ready, waiting for data on BLE...");
-}
-
-static ble_state_t last_ble_state = BLE_STATE_INIT;
-
-static void handle_rotation_change(void) {
-#ifdef JC3248W535
-    return;
-#else
-    static uint8_t last_rotation = 0;
-    static uint8_t  ramp_step = 0;
-    static uint32_t ramp_last = 0;
-
-    uint8_t rot = imu_get_rotation();
-    if (rot != last_rotation) {
-        gfx->setBrightness(0);
-        last_rotation = rot;
-        lv_obj_invalidate(lv_screen_active());
-        ramp_step = 1;
-        return;
-    }
-
-    if (ramp_step == 0) return;
-    uint32_t now = millis();
-    if (now - ramp_last < 25) return;
-    ramp_last = now;
-
-    static const uint8_t levels[] = {60, 120, 170, 200};
-    gfx->setBrightness(levels[ramp_step - 1]);
-    if (ramp_step >= 4) ramp_step = 0;
-    else                ramp_step++;
-#endif
+    ui_show_screen(SCREEN_USAGE);
+    Serial.println("System Ready.");
 }
 
 void loop() {
@@ -370,69 +158,20 @@ void loop() {
     lv_timer_handler();
     ui_tick_anim();
     ble_tick();
-    power_tick();
-    imu_tick();
-    splash_tick();
-
-#ifndef JC3248W535
-    {
-        static bool back_was = false, fwd_was = false;
-        bool back_now = (digitalRead(BTN_BACK) == LOW);
-        bool fwd_now  = (digitalRead(BTN_FWD)  == LOW);
-
-        if (back_now != back_was) {
-            if (back_now) ble_keyboard_press(0x2C, 0);
-            else          ble_keyboard_release();
-            back_was = back_now;
-        }
-        if (fwd_now != fwd_was) {
-            if (fwd_now) ble_keyboard_press(0x2B, 0x02);
-            else         ble_keyboard_release();
-            fwd_was = fwd_now;
-        }
-
-        if (power_pwr_pressed()) {
-            if (ui_get_current_screen() == SCREEN_SPLASH) splash_next();
-            else                                          ui_cycle_screen();
-        }
-    }
-#else
-    // On JC3248W535, we could use touch zones or long press for these functions
-#endif
-
-    handle_rotation_change();
-
-    ble_state_t bs = ble_get_state();
-    if (bs != last_ble_state) {
-        last_ble_state = bs;
-        ui_update_ble_status(bs, ble_get_device_name(), ble_get_mac_address());
-    }
-
-    static int last_pct = -2;
-    static bool last_charging = false;
-    int pct = power_battery_pct();
-    bool charging = power_is_charging();
-    if (pct != last_pct || charging != last_charging) {
-        last_pct = pct;
-        last_charging = charging;
-        ui_update_battery(pct, charging);
-    }
-
-    check_serial_cmd();
 
     if (ble_has_data()) {
-        if (parse_json(ble_get_data(), &usage)) {
-            int g_before = usage_rate_group();
-            usage_rate_sample(usage.session_pct);
-            int g_after = usage_rate_group();
-            if (g_after != g_before) {
-                if (splash_is_active()) splash_pick_for_current_rate();
-            }
+        JsonDocument doc;
+        if (deserializeJson(doc, ble_get_data()) == DeserializationError::Ok) {
+            usage.session_pct = doc["s"] | 0.0f;
+            usage.session_reset_mins = doc["sr"] | -1;
+            usage.weekly_pct = doc["w"] | 0.0f;
+            usage.weekly_reset_mins = doc["wr"] | -1;
+            strlcpy(usage.status, doc["st"] | "unknown", sizeof(usage.status));
+            usage.ok = doc["ok"] | false;
+            usage.valid = true;
             ui_update(&usage);
             ble_send_ack();
-        } else {
-            ble_send_nack();
-        }
+        } else ble_send_nack();
     }
     delay(5);
 }
