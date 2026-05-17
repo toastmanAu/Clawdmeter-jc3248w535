@@ -110,7 +110,7 @@ static void rounder_cb(lv_event_t* e) {
 void setup() {
     Serial.begin(115200);
     delay(2000);
-    Serial.println("\n--- Clawdmeter: Raw Touch Packet Sniffer ---");
+    Serial.println("\n--- Clawdmeter: System Starting ---");
 
     pinMode(LCD_BL, OUTPUT);
     digitalWrite(LCD_BL, HIGH);
@@ -149,15 +149,39 @@ void setup() {
 
     ble_init();
     ui_init();
+    
+    // Show initial BLE and battery status
+    ui_update_ble_status(ble_get_state(), ble_get_device_name(), ble_get_mac_address());
+    ui_update_battery(power_battery_pct(), power_is_charging());
+
     ui_show_screen(SCREEN_USAGE);
     Serial.println("System Ready.");
 }
+
+static ble_state_t last_ble_state = BLE_STATE_INIT;
 
 void loop() {
     touch_read();
     lv_timer_handler();
     ui_tick_anim();
     ble_tick();
+
+    // Update status info if it changed
+    ble_state_t bs = ble_get_state();
+    if (bs != last_ble_state) {
+        last_ble_state = bs;
+        ui_update_ble_status(bs, ble_get_device_name(), ble_get_mac_address());
+    }
+
+    static int last_pct = -2;
+    static bool last_charging = false;
+    int pct = power_battery_pct();
+    bool charging = power_is_charging();
+    if (pct != last_pct || charging != last_charging) {
+        last_pct = pct;
+        last_charging = charging;
+        ui_update_battery(pct, charging);
+    }
 
     if (ble_has_data()) {
         JsonDocument doc;

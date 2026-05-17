@@ -258,6 +258,7 @@ static void make_usage_panel(lv_obj_t* parent, int y, const char* pill_text,
     lv_obj_set_style_text_font(*out_reset, &font_styrene_28, 0);
     lv_obj_set_pos(*out_reset, 0, 94);
 #endif
+    lv_obj_set_style_text_color(*out_reset, COL_TEXT, 0);
 }
 
 static void init_usage_screen(lv_obj_t* scr) {
@@ -296,9 +297,10 @@ static void init_usage_screen(lv_obj_t* scr) {
 
     // Add touch buttons for HID functions
     lv_obj_t* btn_voice = lv_button_create(usage_container);
-    lv_obj_set_size(btn_voice, 100, 44);
-    lv_obj_align(btn_voice, LV_ALIGN_BOTTOM_LEFT, MARGIN, -5);
+    lv_obj_set_size(btn_voice, 100, 32);
+    lv_obj_align(btn_voice, LV_ALIGN_BOTTOM_LEFT, MARGIN, 0);
     lv_obj_set_style_bg_color(btn_voice, COL_PANEL, 0);
+    lv_obj_set_style_pad_all(btn_voice, 0, 0);
     lv_obj_t* lbl_voice = lv_label_create(btn_voice);
     lv_label_set_text(lbl_voice, "Voice");
     lv_obj_center(lbl_voice);
@@ -309,9 +311,10 @@ static void init_usage_screen(lv_obj_t* scr) {
     }, LV_EVENT_ALL, NULL);
 
     lv_obj_t* btn_toggle = lv_button_create(usage_container);
-    lv_obj_set_size(btn_toggle, 100, 44);
-    lv_obj_align(btn_toggle, LV_ALIGN_BOTTOM_RIGHT, -MARGIN, -5);
+    lv_obj_set_size(btn_toggle, 100, 32);
+    lv_obj_align(btn_toggle, LV_ALIGN_BOTTOM_RIGHT, -MARGIN, 0);
     lv_obj_set_style_bg_color(btn_toggle, COL_PANEL, 0);
+    lv_obj_set_style_pad_all(btn_toggle, 0, 0);
     lv_obj_t* lbl_toggle = lv_label_create(btn_toggle);
     lv_label_set_text(lbl_toggle, "Toggle");
     lv_obj_center(lbl_toggle);
