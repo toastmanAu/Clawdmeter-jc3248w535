@@ -23,6 +23,30 @@ The device boots into the splash and stays there until you press the middle (PWR
 
 While the splash is up, the middle button cycles animations instead of screens. The firmware also auto-rotates every 20 s within the current usage-rate group, so a long stretch on the splash isn't just one Clawd on loop.
 
+## Guition JC3248W535 Port
+
+A dedicated port for the **Guition JC3248W535** (also known as the DIYmalls 3.5" ESP32-S3 HMI) is available on the `jc3248w535-port` branch.
+
+### Hardware Details
+- **MCU**: ESP32-S3-WROOM-1 (8MB OPI PSRAM, 16MB Flash)
+- **Display**: 3.5" 320x480 IPS (AXS15231B controller)
+- **Adaptation**: The UI is rotated to **480x320 Landscape** using a custom manual pixel transformation in the flush callback to bypass driver rotation bugs.
+- **Touch**: AXS15231 cap touch calibrated for landscape interaction.
+- **Backlight**: Controlled via PWM on **GPIO 1**.
+- **Battery Meter**: ⚠️ **Not yet wired up.** This board lacks the AXP2101 PMU; battery monitoring requires an external voltage divider connected to an ADC pin, which is currently return stubbed as -1.
+
+### Interaction
+Since this board lacks physical side buttons, they have been replaced with on-screen touch buttons:
+- **Voice Button**: (Bottom Left) Hold to send `Space`.
+- **Toggle Button**: (Bottom Right) Tap to send `Shift+Tab`.
+- **Screen Cycle**: Tap the **Claude Logo** (top left) to cycle between Usage and Bluetooth screens.
+- **Splash Toggle**: Tap the background anywhere else to toggle the Clawd animation.
+
+### Flash (Linux)
+```bash
+pio run -e jc3248w535 -d firmware -t upload
+```
+
 ## Hardware
 
 - [Waveshare ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm?&aff_id=149786) - ESP32-S3R8, 2.16" 480×480 AMOLED (CO5300 QSPI), CST9220 cap touch, AXP2101 PMU + Li-Po battery, QMI8658 IMU
