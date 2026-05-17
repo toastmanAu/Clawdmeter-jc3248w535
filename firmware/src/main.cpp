@@ -160,11 +160,61 @@ void setup() {
 
 static ble_state_t last_ble_state = BLE_STATE_INIT;
 
+static char cmd_buf[64];
+static int cmd_pos = 0;
+
+static void send_screenshot() {
+    const uint32_t w = 480, h = 320;
+    const uint32_t buf_size = w * h * 2;
+    uint8_t* sbuf = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    if (!sbuf) {
+        Serial.println("SCREENSHOT_ERR_ALLOC");
+        return;
+    }
+
+    lv_draw_buf_t draw_buf;
+    lv_draw_buf_init(&draw_buf, w, h, LV_COLOR_FORMAT_RGB565, w * 2, sbuf, buf_size);
+
+    lv_result_t res = lv_snapshot_take_to_draw_buf(lv_screen_active(), LV_COLOR_FORMAT_RGB565, &draw_buf);
+    if (res != LV_RESULT_OK) {
+        heap_caps_free(sbuf);
+        Serial.println("SCREENSHOT_ERR_SNAPSHOT");
+        return;
+    }
+
+    Serial.printf("SCREENSHOT_START %lu %lu %lu\n", (unsigned long)w, (unsigned long)h, (unsigned long)buf_size);
+    Serial.flush();
+    Serial.write(sbuf, buf_size);
+    Serial.flush();
+    Serial.println("\nSCREENSHOT_END");
+
+    heap_caps_free(sbuf);
+}
+
+static void check_serial_cmd() {
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            cmd_buf[cmd_pos] = '\0';
+            if (strcmp(cmd_buf, "screenshot") == 0) {
+                send_screenshot();
+            }
+            cmd_pos = 0;
+        } else if (cmd_pos < 63) {
+            cmd_buf[cmd_pos++] = c;
+        }
+    }
+}
+
 void loop() {
+    check_serial_cmd();
     touch_read();
     lv_timer_handler();
     ui_tick_anim();
     ble_tick();
+    power_tick();
+    imu_tick();
+    splash_tick();
 
     // Update status info if it changed
     ble_state_t bs = ble_get_state();

@@ -1,250 +1,86 @@
-# Clawdmeter
+# Clawdmeter (Guition JC3248W535 Port)
 
 A small ESP32 dashboard I made for my desk to keep an eye on Claude Code usage.
 
-It runs on a [Waveshare ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm?&aff_id=149786) and pairs with my laptop over Bluetooth, the splash screen plays pixel-art Clawd animations that get
-busier when your usage rate climbs. The two side buttons send Space and
-Shift+Tab over BLE HID for Claude Code's voice mode and mode-toggle shortcuts.
+This is a dedicated fork for the **Guition JC3248W535** (also known as the DIYmalls 3.5" ESP32-S3 HMI board). It pairs with your laptop over Bluetooth to display your Claude Code usage in real-time.
 
 |              Usage meter              |              Clawd animation screen              |
 | :-----------------------------------: | :----------------------------------------------: |
-| ![Usage meter](assets/demo.jpeg) | ![Clawd animation screen](assets/demo.gif) |
+| ![Usage meter](assets/claudeUsage.png) | ![Clawd animation screen](assets/demo.gif) |
 
-The Clawd animations come from [claudepix](https://claudepix.vercel.app), [@amaanbuilds](https://x.com/amaanbuilds)'s library of pixel-art Clawd sprites, check it out, it's lovely.
+The splash screen plays pixel-art Clawd animations that get busier when your usage rate climbs. The animations come from [claudepix](https://claudepix.vercel.app), [@amaanbuilds](https://x.com/amaanbuilds)'s library of pixel-art Clawd sprites.
 
 ## Screens
 
-The device boots into the splash and stays there until you press the middle (PWR) button, which cycles between Usage and Bluetooth. Tap the screen anywhere (except the Reset zone on the Bluetooth screen) to flip back to the splash; tap again to dismiss it.
+- **Usage Dashboard**: Displays session and weekly utilization, reset timers, and an activity spinner.
+- **Bluetooth Status**: Shows connection state, device name, and MAC address.
+- **Splash Screen**: Plays animations based on usage rate.
 
-|              Splash               |              Usage              |                Bluetooth                |
-| :-------------------------------: | :-----------------------------: | :-------------------------------------: |
-| ![Splash](screenshots/splash.png) | ![Usage](screenshots/usage.png) | ![Bluetooth](screenshots/bluetooth.png) |
-|   Splash; touch-toggle anytime    | Session and weekly utilization  |    Connection status and bond reset     |
-
-While the splash is up, the middle button cycles animations instead of screens. The firmware also auto-rotates every 20 s within the current usage-rate group, so a long stretch on the splash isn't just one Clawd on loop.
-
-## Guition JC3248W535 Port
-
-A dedicated port for the **Guition JC3248W535** (also known as the DIYmalls 3.5" ESP32-S3 HMI) is available on the `jc3248w535-port` branch.
-
-### Hardware Details
-- **MCU**: ESP32-S3-WROOM-1 (8MB OPI PSRAM, 16MB Flash)
-- **Display**: 3.5" 320x480 IPS (AXS15231B controller)
-- **Adaptation**: The UI is rotated to **480x320 Landscape** using a custom manual pixel transformation in the flush callback to bypass driver rotation bugs.
-- **Touch**: AXS15231 cap touch calibrated for landscape interaction.
-- **Backlight**: Controlled via PWM on **GPIO 1**.
-- **Battery Meter**: ⚠️ **Not yet wired up.** This board lacks the AXP2101 PMU; battery monitoring requires an external voltage divider connected to an ADC pin, which is currently return stubbed as -1.
-
-### Interaction
-Since this board lacks physical side buttons, they have been replaced with on-screen touch buttons:
-- **Voice Button**: (Bottom Left) Hold to send `Space`.
-- **Toggle Button**: (Bottom Right) Tap to send `Shift+Tab`.
-- **Screen Cycle**: Tap the **Claude Logo** (top left) to cycle between Usage and Bluetooth screens.
-- **Splash Toggle**: Tap the background anywhere else to toggle the Clawd animation.
-
-### Flash (Linux)
-```bash
-pio run -e jc3248w535 -d firmware -t upload
-```
+**Interaction**:
+- **Tap the Claude Logo** (top left) to cycle between the Usage and Bluetooth screens.
+- **Tap the Background** to toggle the Splash Animation.
+- **On-screen "Voice" button**: Hold to trigger Claude Code's voice mode (`Space`).
+- **On-screen "Toggle" button**: Tap to switch Claude Code modes (`Shift+Tab`).
 
 ## Hardware
 
-- [Waveshare ESP32-S3-Touch-AMOLED-2.16](https://www.waveshare.com/esp32-s3-touch-amoled-2.16.htm?&aff_id=149786) - ESP32-S3R8, 2.16" 480×480 AMOLED (CO5300 QSPI), CST9220 cap touch, AXP2101 PMU + Li-Po battery, QMI8658 IMU
-- USB-C cable for flashing firmware and charging
-- 3.7V Li-Po battery (MX1.25 2-pin connector, optional)
+- **Guition JC3248W535**: ESP32-S3-WROOM-1, 3.5" 320x480 IPS Display (AXS15231B).
+- **8MB OPI PSRAM**: Used for full-frame buffering to ensure glitch-free rendering.
+- **Capacitive Touch**: Fully calibrated for landscape interaction.
+- **Backlight**: Controlled via PWM on GPIO 1.
+- **Battery Meter**: ⚠️ **Not yet wired up.** This board lacks a PMU; battery monitoring requires an external voltage divider connected to an ADC pin.
 
-## Prerequisites
+## Installation (Linux)
 
-- Linux (tested on Ubuntu) or macOS
-- [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation/index.html)
-- Linux: `curl`, `bluetoothctl`, `busctl` (BlueZ Bluetooth stack)
-- macOS: `python3` (the installer sets up a venv with `bleak` and `httpx`)
-- Claude Code with an active subscription
-
-## macOS installation
-
-The macOS host pieces — Python daemon, LaunchAgent, and flash helper — were ported by [Chris Davidson (@lorddavidson)](https://github.com/lorddavidson). Thanks Chris!
-
-### Flash the firmware
-
-```bash
-./flash-mac.sh                       # auto-detects /dev/cu.usbmodem*
-./flash-mac.sh /dev/cu.usbmodem1101  # or pass an explicit USB serial port
-```
-
-### Pair the device
-
-After flashing, open **System Settings → Bluetooth** and click *Connect* next to "Clawdmeter". The daemon will discover it on its next scan (~30 s).
-
-### Install the daemon
-
-The daemon reads your Claude OAuth token from the macOS Keychain (service `Claude Code-credentials`), polls usage every 60 s, and pushes it to the display over BLE.
-
-```bash
-./install-mac.sh
-```
-
-The installer creates a Python venv in `daemon/.venv/`, installs `bleak` and `httpx`, renders a LaunchAgent into `~/Library/LaunchAgents/com.user.claude-usage-daemon.plist`, and loads it. The first run is launched interactively so macOS prompts for Bluetooth permission.
-
-Useful commands:
-
-```bash
-launchctl list | grep claude-usage                                          # check it's running
-tail -F ~/Library/Logs/claude-usage-daemon.out.log                          # live logs
-launchctl unload ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist  # stop
-launchctl load -w ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist # start
-```
-
-## Linux installation
-
-### Flash the firmware
+### 1. Flash the firmware
 
 ```bash
 cd firmware
-pio run -t upload --upload-port /dev/ttyACM0
+pio run -e jc3248w535 -t upload
 ```
 
-### Pair the device
+### 2. Pair the device
 
-After flashing, the device advertises as "Claudemeter". Pair it once:
+The device advertises as **"Claude Controller"**. 
 
 ```bash
 # Scan for the device
 bluetoothctl scan le
 
-# When "Claude Controller" appears, pair and trust it
-bluetoothctl pair F4:12:FA:C0:8F:E5    # use your device's MAC
-bluetoothctl trust F4:12:FA:C0:8F:E5
+# Pair and trust (replace with your board's MAC)
+bluetoothctl pair 8C:BF:EA:0D:B3:11
+bluetoothctl trust 8C:BF:EA:0D:B3:11
 ```
 
-The MAC address is shown on the Bluetooth screen — press the middle (PWR) button to cycle to it.
-
-### Install the daemon
+### 3. Install the daemon
 
 The daemon polls your Claude usage every 60 seconds and sends it to the display over BLE.
 
 ```bash
-./install.sh
-systemctl --user start claude-usage-daemon
+cd daemon
+# Update the path in the service file
+sed -i "s|ExecStart=DAEMON_PATH|ExecStart=$HOME/Clawdmeter/daemon/claude-usage-daemon.sh|" claude-usage-daemon.service
+
+# Install as a user service
+mkdir -p ~/.config/systemd/user/
+cp claude-usage-daemon.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now claude-usage-daemon.service
 ```
-
-Check status: `systemctl --user status claude-usage-daemon`
-
-View logs: `journalctl --user -u claude-usage-daemon -f`
 
 ## How it works
 
 1. The daemon reads your Claude Code OAuth token from `~/.claude/.credentials.json`.
-2. It makes a minimal API call to `api.anthropic.com/v1/messages` — one token of Haiku, basically free.
-3. The usage numbers come straight out of the response headers (`anthropic-ratelimit-unified-5h-utilization` and friends).
-4. The daemon connects to the ESP32 over BLE and writes a JSON payload to the GATT RX characteristic.
-5. The firmware parses it and updates the LVGL dashboard.
-6. The firmware also tracks the rate of change of session % over a 5-minute window and picks splash animations from the matching mood group.
-7. The two side buttons are independent of all of this — they send Space and Shift+Tab as BLE HID keyboard input to the paired host directly.
-
-## Physical buttons
-
-The board has three side buttons. Left and right do the same thing on every screen; the middle button is screen-aware.
-
-| Button           | GPIO         | Function                                                       |
-| ---------------- | ------------ | -------------------------------------------------------------- |
-| **Left**         | GPIO 0       | Hold to send Space (Claude Code voice-mode push-to-talk)       |
-| **Middle** (PWR) | AXP2101 PKEY | Cycle screens (Usage ↔ Bluetooth); on splash, cycle animations |
-| **Right**        | GPIO 18      | Press to send Shift+Tab (Claude Code mode toggle)              |
-
-Space and Shift+Tab go out as standard BLE HID keyboard reports, so they trigger in whatever window has focus on the paired host — not just Claude Code.
-
-## BLE protocol
-
-The device advertises a custom GATT service alongside the standard HID keyboard service:
-
-|                            | UUID                                   |
-| -------------------------- | -------------------------------------- |
-| **Data Service**           | `4c41555a-4465-7669-6365-000000000001` |
-| RX Characteristic (write)  | `4c41555a-4465-7669-6365-000000000002` |
-| TX Characteristic (notify) | `4c41555a-4465-7669-6365-000000000003` |
-| **HID Service**            | `00001812-0000-1000-8000-00805f9b34fb` |
-
-JSON payload format (written to RX):
-
-```json
-{ "s": 45, "sr": 120, "w": 28, "wr": 7200, "st": "allowed", "ok": true }
-```
-
-Fields: `s` = session %, `sr` = session reset (minutes), `w` = weekly %, `wr` = weekly reset (minutes), `st` = status, `ok` = success flag.
-
-## Recompiling fonts
-
-The `firmware/src/font_*.c` files are pre-compiled LVGL bitmap fonts.
-
-```bash
-npm install -g lv_font_conv
-```
-
-Generate each one (one at a time — `lv_font_conv` doesn't like loop-driven invocations) with `--no-compress` (required for LVGL 9):
-
-```bash
-# Tiempos Text (titles, 56px)
-lv_font_conv --font assets/TiemposText-400-Regular.otf -r 0x20-0x7E \
-  --size 56 --format lvgl --bpp 4 --no-compress \
-  -o firmware/src/font_tiempos_56.c --lv-include "lvgl.h"
-
-# Styrene B (large numbers 48, panel labels 28, small text 24, minimal 20)
-for size in 48 28 24 20; do
-  lv_font_conv --font assets/StyreneB-Regular.otf -r 0x20-0x7E \
-    --size $size --format lvgl --bpp 4 --no-compress \
-    -o firmware/src/font_styrene_${size}.c --lv-include "lvgl.h"
-done
-
-# DejaVu Sans Mono (32px, with spinner Unicode chars)
-lv_font_conv --font assets/DejaVuSansMono.ttf \
-  -r 0x20-0x7E,0xB7,0x2026,0x2722,0x2733,0x2736,0x273B,0x273D \
-  --size 32 --format lvgl --bpp 4 --no-compress \
-  -o firmware/src/font_mono_32.c --lv-include "lvgl.h"
-```
-
-**Important:** `lv_font_conv` v1.5.3 outputs LVGL 8 format. Each generated file must be patched for LVGL 9 compatibility:
-
-1. Remove `#if LVGL_VERSION_MAJOR >= 8` guards around `font_dsc` and the font struct
-2. Remove the `.cache` field from `font_dsc`
-3. Add `.release_glyph = NULL`, `.kerning = 0`, `.static_bitmap = 0` to the font struct
-4. Add `.fallback = NULL`, `.user_data = NULL` to the font struct
-
-Without these patches, fonts compile but render as invisible.
-
-## Converting Lucide icons
-
-The UI uses a small set of [Lucide](https://lucide.dev) icons (bluetooth + battery states) converted to RGB565 / RGB565A8 C arrays for LVGL.
-
-```bash
-node tools/png_to_lvgl.js assets/icon_bluetooth_48.png icon_bluetooth_data ICON_BLUETOOTH_WIDTH ICON_BLUETOOTH_HEIGHT
-```
-
-Default tint is white (`0xFFFFFF`); Lucide PNGs ship as black-on-transparent and would render invisible against the dark UI without it. Pass `--no-tint` for pre-coloured artwork like the logo. Battery icons use RGB565A8 (alpha plane) so they blend cleanly over the splash; the rest are baked RGB565 over the panel colour. Paste the converter output into `firmware/src/icons.h`.
-
-## Splash animations
-
-The animations come from [claudepix.vercel.app](https://claudepix.vercel.app),
-a library of Clawd sprites. `tools/scrape_claudepix.js` evaluates the
-site's JavaScript in a Node VM to pull out frame data and palettes, then
-`tools/convert_to_c.js` turns everything into RGB565 C arrays and writes
-`firmware/src/splash_animations.h`.
-
-To re-pull (e.g. when the source library updates):
-
-```bash
-node tools/scrape_claudepix.js
-node tools/convert_to_c.js
-pio run -d firmware -t upload
-```
-
-See `tools/README.md` for details.
+2. It polls the Anthropic API for usage headers.
+3. The data is sent to the ESP32 over BLE GATT.
+4. The firmware (running LVGL 9) renders the dashboard. A manual pixel transformation fix is used in the flush callback to bypass driver-level rotation bugs, ensuring a perfect 480x320 landscape image.
+5. The on-screen buttons act as a BLE HID keyboard to send shortcuts to your PC.
 
 ## Credits
 
-- Pixel-art Clawd animation by [@amaanbuilds](https://x.com/amaanbuilds), sourced from [claudepix.vercel.app](https://claudepix.vercel.app). Frame data and palettes scraped + converted by the tooling in `tools/`.
-- Lucide icon set ([lucide.dev](https://lucide.dev), MIT) for bluetooth and battery UI glyphs.
-- Anthropic brand fonts (Tiempos Text, Styrene B) — see licensing warning below.
+- Pixel-art Clawd animation by [@amaanbuilds](https://x.com/amaanbuilds), sourced from [claudepix.vercel.app](https://claudepix.vercel.app).
+- Lucide icon set ([lucide.dev](https://lucide.dev), MIT) for UI glyphs.
+- Porting and hardware adaptation by Gemini CLI.
 
 ## Licensing gray area warning
 
