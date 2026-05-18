@@ -25,8 +25,8 @@ LV_FONT_DECLARE(font_mono_18);
 #define SCR_W         480
 #define SCR_H         320
 #define MARGIN        20
-#define TITLE_Y       25    // Back to top
-#define CONTENT_Y     75    // Move content up to save space
+#define TITLE_Y       25
+#define CONTENT_Y     75
 #define CONTENT_W     (SCR_W - 2 * MARGIN)
 
 static lv_obj_t* usage_container;
@@ -51,10 +51,12 @@ static uint8_t anim_spinner_idx = 0;
 static uint8_t anim_phase = 0;
 static uint8_t anim_msg_idx = 0;
 static uint32_t anim_msg_start = 0;
+#define ANIM_MSG_MS     4000
 
 static const char* const spinner_frames[] = {"\xC2\xB7", "\xE2\x9C\xBB", "\xE2\x9C\xBD", "\xE2\x9C\xB6", "\xE2\x9C\xB3", "\xE2\x9C\xA2"};
 static const uint16_t spinner_ms[6] = {260, 130, 130, 130, 130, 260};
-static const char* const anim_messages[] = {"Actualizing", "Booping", "Processing", "Thinking", "Working"};
+static const char* const anim_messages[] = {"Actioning", "Actualizing", "Booping", "Computing", "Enchanting", "Processing", "Thinking", "Working"};
+#define ANIM_MSG_COUNT 8
 
 static lv_color_t pct_color(float pct) { return (pct >= 80.0f) ? THEME_RED : (pct >= 50.0f ? THEME_AMBER : THEME_GREEN); }
 static void format_reset_time(int mins, char* buf, size_t len) {
@@ -75,12 +77,15 @@ static void make_u_panel(lv_obj_t* par, int y, const char* p_txt, lv_obj_t** o_p
     lv_obj_set_style_radius(p, 8, 0); lv_obj_set_style_border_width(p, 0, 0); lv_obj_set_style_pad_all(p, 10, 0);
     *o_pct = lv_label_create(p); lv_label_set_text(*o_pct, "---%"); lv_obj_set_style_text_font(*o_pct, &font_styrene_28, 0); lv_obj_set_style_text_color(*o_pct, COL_TEXT, 0);
     lv_obj_t* pill = lv_label_create(p); lv_label_set_text(pill, p_txt); lv_obj_set_style_text_font(pill, &font_styrene_16, 0);
-    lv_obj_set_style_text_color(pill, THEME_BG, 0); // Dark text on light pill
-    lv_obj_set_style_bg_color(pill, COL_ACCENT, 0); // Amber background for pill
+    lv_obj_set_style_text_color(pill, THEME_BG, 0); lv_obj_set_style_bg_color(pill, COL_ACCENT, 0); 
     lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0); lv_obj_set_style_radius(pill, 10, 0); lv_obj_set_style_pad_all(pill, 4, 0); lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, 0, 0);
     *o_bar = lv_bar_create(p); lv_obj_set_pos(*o_bar, 0, 38); lv_obj_set_size(*o_bar, CONTENT_W - 20, 12);
     lv_obj_set_style_bg_color(*o_bar, COL_BAR_BG, LV_PART_MAIN); lv_obj_set_style_bg_color(*o_bar, THEME_GREEN, LV_PART_INDICATOR);
     *o_res = lv_label_create(p); lv_label_set_text(*o_res, "---"); lv_obj_set_style_text_font(*o_res, &font_styrene_16, 0); lv_obj_set_style_text_color(*o_res, COL_TEXT, 0); lv_obj_set_pos(*o_res, 0, 56);
+}
+
+static void global_click_cb(lv_event_t* e) {
+    if (current_screen != SCREEN_BLUETOOTH) ui_toggle_splash();
 }
 
 void ui_init(void) {
@@ -97,7 +102,7 @@ void ui_init(void) {
 
     usage_container = lv_obj_create(scr); lv_obj_set_size(usage_container, SCR_W, SCR_H);
     lv_obj_set_style_bg_color(usage_container, COL_BG, 0); lv_obj_set_style_bg_opa(usage_container, LV_OPA_COVER, 0); lv_obj_set_style_border_width(usage_container, 0, 0);
-    lv_obj_add_event_cb(usage_container, [](lv_event_t* e) { if (current_screen == SCREEN_USAGE) ui_toggle_splash(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(usage_container, global_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t* h_img = lv_image_create(usage_container);
     lv_image_set_src(h_img, &main_header_dsc);
@@ -115,13 +120,18 @@ void ui_init(void) {
         lv_obj_t* l = lv_label_create(b); lv_label_set_text(l, t); lv_obj_center(l); return b;
     };
     lv_obj_t* bv = make_btn("Voice", LV_ALIGN_BOTTOM_LEFT, MARGIN);
-    lv_obj_add_event_cb(bv, [](lv_event_t* e) { if (lv_event_get_code(e) == LV_EVENT_PRESSED) ble_keyboard_press(0x2C, 0); else if (lv_event_get_code(e) == LV_EVENT_RELEASED) ble_keyboard_release(); }, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(bv, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_PRESSED) ble_keyboard_press(0x2C, 0);
+        else if (lv_event_get_code(e) == LV_EVENT_RELEASED) ble_keyboard_release();
+    }, LV_EVENT_ALL, NULL);
     lv_obj_t* bt = make_btn("Toggle", LV_ALIGN_BOTTOM_RIGHT, -MARGIN);
-    lv_obj_add_event_cb(bt, [](lv_event_t* e) { if (lv_event_get_code(e) == LV_EVENT_CLICKED) { ble_keyboard_press(0x2B, 0x02); delay(50); ble_keyboard_release(); } }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(bt, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) { ble_keyboard_press(0x2B, 0x02); delay(50); ble_keyboard_release(); }
+    }, LV_EVENT_CLICKED, NULL);
 
     ble_container = lv_obj_create(scr); lv_obj_set_size(ble_container, SCR_W, SCR_H);
     lv_obj_set_style_bg_color(ble_container, COL_BG, 0); lv_obj_set_style_bg_opa(ble_container, LV_OPA_COVER, 0); lv_obj_set_style_border_width(ble_container, 0, 0);
-    lv_obj_add_event_cb(ble_container, [](lv_event_t* e) { if (current_screen == SCREEN_BLUETOOTH) ui_toggle_splash(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ble_container, global_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t* lbl_bt_title = lv_label_create(ble_container);
     lv_label_set_text(lbl_bt_title, "Bluetooth");
@@ -190,8 +200,8 @@ void ui_update(const UsageData* d) {
 void ui_tick_anim(void) {
     if (current_screen != SCREEN_USAGE) return;
     uint32_t n = lv_tick_get();
-    if (n - anim_msg_start >= 4000) { anim_msg_idx = (anim_msg_idx + 1) % 5; anim_msg_start = n; }
-    if (n - anim_last_ms >= 200) {
+    if (n - anim_msg_start >= ANIM_MSG_MS) { anim_msg_idx = (anim_msg_idx + 1) % ANIM_MSG_COUNT; anim_msg_start = n; }
+    if (n - anim_last_ms >= spinner_ms[anim_spinner_idx]) {
         anim_last_ms = n; anim_phase = (anim_phase + 1) % 10;
         anim_spinner_idx = (anim_phase < 6) ? anim_phase : (10 - anim_phase);
         static char b[80]; snprintf(b, 80, "%s %s\xE2\x80\xA6", spinner_frames[anim_spinner_idx], anim_messages[anim_msg_idx]);
