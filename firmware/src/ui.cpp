@@ -8,7 +8,6 @@
 #include "ble.h"
 
 LV_FONT_DECLARE(font_tiempos_34);
-LV_FONT_DECLARE(font_styrene_48);
 LV_FONT_DECLARE(font_styrene_28);
 LV_FONT_DECLARE(font_styrene_24);
 LV_FONT_DECLARE(font_styrene_20);
@@ -141,13 +140,13 @@ void ui_init(void) {
     lv_obj_set_style_text_font(lbl_ble_mac, &font_styrene_24, 0); lv_obj_set_pos(lbl_ble_mac, 10, 76);
 
     logo_img = lv_image_create(scr); lv_image_set_src(logo_img, &tiny_logo_dsc); lv_obj_set_pos(logo_img, MARGIN, TITLE_Y - 10);
-    lv_obj_add_flag(logo_img, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_event_cb(logo_img, [](lv_event_t* e) { ui_cycle_screen(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(logo_img, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_event_cb(logo_img, [](lv_event_t* e) { if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_cycle_screen(); }, LV_EVENT_CLICKED, NULL);
 
     battery_img = lv_image_create(scr); lv_image_set_src(battery_img, &battery_dscs[0]); lv_obj_set_pos(battery_img, SCR_W - 48 - MARGIN, TITLE_Y - 10);
 
     splash_init(scr);
     if (splash_get_root()) {
-        lv_obj_add_event_cb(splash_get_root(), [](lv_event_t* e) { ui_toggle_splash(); }, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(splash_get_root(), [](lv_event_t* e) { if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_toggle_splash(); }, LV_EVENT_CLICKED, NULL);
     }
 
     ui_show_screen(SCREEN_USAGE);

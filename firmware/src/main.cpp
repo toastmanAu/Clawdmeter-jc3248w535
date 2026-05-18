@@ -72,7 +72,6 @@ static uint16_t *rot_buf = nullptr;
 
 static void my_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
     uint16_t *src = (uint16_t*)px_map;
-    // Full screen rotation 270 deg
     for (int32_t y = 0; y < 320; y++) {
         for (int32_t x = 0; x < 480; x++) {
             rot_buf[(479 - x) * 320 + y] = src[y * 480 + x];
@@ -85,7 +84,7 @@ static void my_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_m
 
 static void rounder_cb(lv_event_t* e) {
     lv_area_t *area = (lv_area_t*)lv_event_get_param(e);
-    area->x1 = 0; area->y1 = 0; area->x2 = 479; area->y2 = 319; // Force full refresh
+    area->x1 = 0; area->y1 = 0; area->x2 = 479; area->y2 = 319;
 }
 
 static char cmd_buf[64];
@@ -122,7 +121,7 @@ static void check_serial_cmd() {
 void setup() {
     Serial.begin(115200);
     delay(2000);
-    Serial.println("\n--- Clawdmeter: Signal Integrity Build ---");
+    Serial.println("\n--- Clawdmeter: Functional Restoration ---");
 
     pinMode(LCD_BL, OUTPUT);
     digitalWrite(LCD_BL, HIGH);
@@ -161,6 +160,10 @@ void setup() {
 
     ble_init();
     ui_init();
+    
+    ui_update_ble_status(ble_get_state(), ble_get_device_name(), ble_get_mac_address());
+    ui_update_battery(power_battery_pct(), power_is_charging());
+
     ui_show_screen(SCREEN_USAGE);
     Serial.println("System Ready.");
 }
@@ -174,5 +177,34 @@ void loop() {
     power_tick();
     imu_tick();
     splash_tick();
+
+    static ble_state_t last_bs = BLE_STATE_INIT;
+    ble_state_t bs = ble_get_state();
+    if (bs != last_bs) {
+        last_bs = bs;
+        ui_update_ble_status(bs, ble_get_device_name(), ble_get_mac_address());
+    }
+
+    static int last_pct = -2;
+    int pct = power_battery_pct();
+    if (pct != last_pct) {
+        last_pct = pct;
+        ui_update_battery(pct, power_is_charging());
+    }
+
+    if (ble_has_data()) {
+        JsonDocument doc;
+        if (deserializeJson(doc, ble_get_data()) == DeserializationError::Ok) {
+            usage.session_pct = doc["s"] | 0.0f;
+            usage.session_reset_mins = doc["sr"] | -1;
+            usage.weekly_pct = doc["w"] | 0.0f;
+            usage.weekly_reset_mins = doc["wr"] | -1;
+            strlcpy(usage.status, doc["st"] | "unknown", sizeof(usage.status));
+            usage.ok = doc["ok"] | false;
+            usage.valid = true;
+            ui_update(&usage);
+            ble_send_ack();
+        } else ble_send_nack();
+    }
     delay(5);
 }
