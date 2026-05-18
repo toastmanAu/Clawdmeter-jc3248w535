@@ -11,14 +11,12 @@
 #include "usage_rate.h"
 
 #ifdef JC3248W535
-// Verified stable 20MHz Portrait Driver
+// Slower 10MHz for signal integrity
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
-    LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3, 20000000L);
+    LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3, 10000000L);
 
-// Native Portrait (320x480). IPS=false (Verified correct color).
 Arduino_GFX *gfx = new Arduino_AXS15231B(
-    bus, GFX_NOT_DEFINED, 0 /* rotation 0 */, false /* IPS */,
-    320, 480, 0, 0, 0, 0);
+    bus, GFX_NOT_DEFINED, 0, false, 320, 480, 0, 0, 0, 0);
 #else
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
     LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -73,21 +71,13 @@ static uint16_t *buf1 = nullptr;
 static uint16_t *rot_buf = nullptr;
 
 static void my_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
-    int32_t w = area->x2 - area->x1 + 1;
-    int32_t h = area->y2 - area->y1 + 1;
     uint16_t *src = (uint16_t*)px_map;
-
-    // Manual Pixel Rotation: 270 deg clockwise (Rotation 3)
-    // When in FULL mode, area is always 0,0 to 479,319
-    for (int32_t y = 0; y < h; y++) {
-        for (int32_t x = 0; x < w; x++) {
-            // Map 480x320 landscape buffer to 320x480 portrait hardware
-            // dx = y
-            // dy = 479 - x
+    // Full screen rotation 270 deg
+    for (int32_t y = 0; y < 320; y++) {
+        for (int32_t x = 0; x < 480; x++) {
             rot_buf[(479 - x) * 320 + y] = src[y * 480 + x];
         }
     }
-    
     gfx->draw16bitRGBBitmap(0, 0, rot_buf, 320, 480);
     gfx->flush();
     lv_display_flush_ready(disp);
@@ -95,12 +85,7 @@ static void my_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_m
 
 static void rounder_cb(lv_event_t* e) {
     lv_area_t *area = (lv_area_t*)lv_event_get_param(e);
-    area->x1 &= ~7; 
-    area->y1 &= ~7;
-    area->x2 = (area->x2 | 7);
-    if (area->x2 >= 480) area->x2 = 479;
-    area->y2 = (area->y2 | 7);
-    if (area->y2 >= 320) area->y2 = 319;
+    area->x1 = 0; area->y1 = 0; area->x2 = 479; area->y2 = 319; // Force full refresh
 }
 
 static char cmd_buf[64];
@@ -137,7 +122,7 @@ static void check_serial_cmd() {
 void setup() {
     Serial.begin(115200);
     delay(2000);
-    Serial.println("\n--- Clawdmeter: Final UI Fix Build ---");
+    Serial.println("\n--- Clawdmeter: Signal Integrity Build ---");
 
     pinMode(LCD_BL, OUTPUT);
     digitalWrite(LCD_BL, HIGH);
@@ -176,10 +161,6 @@ void setup() {
 
     ble_init();
     ui_init();
-    
-    ui_update_ble_status(ble_get_state(), ble_get_device_name(), ble_get_mac_address());
-    ui_update_battery(power_battery_pct(), power_is_charging());
-
     ui_show_screen(SCREEN_USAGE);
     Serial.println("System Ready.");
 }
@@ -193,34 +174,5 @@ void loop() {
     power_tick();
     imu_tick();
     splash_tick();
-
-    ble_state_t bs = ble_get_state();
-    static ble_state_t last_bs = BLE_STATE_INIT;
-    if (bs != last_bs) {
-        last_bs = bs;
-        ui_update_ble_status(bs, ble_get_device_name(), ble_get_mac_address());
-    }
-
-    int pct = power_battery_pct();
-    static int last_pct = -2;
-    if (pct != last_pct) {
-        last_pct = pct;
-        ui_update_battery(pct, power_is_charging());
-    }
-
-    if (ble_has_data()) {
-        JsonDocument doc;
-        if (deserializeJson(doc, ble_get_data()) == DeserializationError::Ok) {
-            usage.session_pct = doc["s"] | 0.0f;
-            usage.session_reset_mins = doc["sr"] | -1;
-            usage.weekly_pct = doc["w"] | 0.0f;
-            usage.weekly_reset_mins = doc["wr"] | -1;
-            strlcpy(usage.status, doc["st"] | "unknown", sizeof(usage.status));
-            usage.ok = doc["ok"] | false;
-            usage.valid = true;
-            ui_update(&usage);
-            ble_send_ack();
-        } else ble_send_nack();
-    }
     delay(5);
 }
