@@ -147,10 +147,15 @@ void ui_init(void) {
 
     lbl_ble_status = lv_label_create(p_info); lv_label_set_text(lbl_ble_status, "Initializing...");
     lv_obj_set_style_text_font(lbl_ble_status, &font_styrene_28, 0); lv_obj_set_pos(lbl_ble_status, 10, 10);
+    lv_obj_set_style_text_color(lbl_ble_status, COL_TEXT, 0);
+
     lbl_ble_device = lv_label_create(p_info); lv_label_set_text(lbl_ble_device, "Device: ---");
     lv_obj_set_style_text_font(lbl_ble_device, &font_styrene_24, 0); lv_obj_set_pos(lbl_ble_device, 10, 48);
+    lv_obj_set_style_text_color(lbl_ble_device, COL_TEXT, 0);
+
     lbl_ble_mac = lv_label_create(p_info); lv_label_set_text(lbl_ble_mac, "Address: ---");
     lv_obj_set_style_text_font(lbl_ble_mac, &font_styrene_24, 0); lv_obj_set_pos(lbl_ble_mac, 10, 76);
+    lv_obj_set_style_text_color(lbl_ble_mac, COL_TEXT, 0);
 
     logo_img = lv_image_create(scr); lv_image_set_src(logo_img, &tiny_logo_dsc); lv_obj_set_pos(logo_img, MARGIN, TITLE_Y - 10);
     lv_obj_add_flag(logo_img, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_event_cb(logo_img, [](lv_event_t* e) { ui_cycle_screen(); }, LV_EVENT_CLICKED, NULL);
