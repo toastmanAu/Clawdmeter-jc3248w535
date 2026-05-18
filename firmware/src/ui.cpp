@@ -40,7 +40,6 @@ LV_FONT_DECLARE(font_mono_18);
 
 // ---- Usage screen widgets ----
 static lv_obj_t* usage_container;
-static lv_obj_t* lbl_title;
 static lv_obj_t* bar_session;
 static lv_obj_t* lbl_session_pct;
 static lv_obj_t* lbl_session_label;
@@ -57,7 +56,7 @@ static lv_obj_t* lbl_ble_status;
 static lv_obj_t* lbl_ble_device;
 static lv_obj_t* lbl_ble_mac;
 
-// ---- Battery indicator (shared, on top) ----
+// ---- Shared widgets (on top level) ----
 static lv_obj_t* battery_img;
 static lv_obj_t* logo_img;
 static lv_image_dsc_t battery_dscs[5];  // empty, low, medium, full, charging
@@ -267,7 +266,8 @@ static void init_usage_screen(lv_obj_t* scr) {
     usage_container = lv_obj_create(scr);
     lv_obj_set_size(usage_container, SCR_W, SCR_H);
     lv_obj_set_pos(usage_container, 0, 0);
-    lv_obj_set_style_bg_opa(usage_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(usage_container, COL_BG, 0);
+    lv_obj_set_style_bg_opa(usage_container, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(usage_container, 0, 0);
     lv_obj_set_style_pad_all(usage_container, 0, 0);
     lv_obj_clear_flag(usage_container, LV_OBJ_FLAG_SCROLLABLE);
@@ -275,7 +275,7 @@ static void init_usage_screen(lv_obj_t* scr) {
 
     lv_obj_t* header_img_obj = lv_image_create(usage_container);
     lv_image_set_src(header_img_obj, &header_dsc);
-    lv_obj_set_pos(header_img_obj, 0, 0);
+    lv_obj_align(header_img_obj, LV_ALIGN_TOP_MID, 0, 10);
 
     make_usage_panel(usage_container, CONTENT_Y, "Current",
                      &lbl_session_pct, &lbl_session_label,
@@ -289,6 +289,8 @@ static void init_usage_screen(lv_obj_t* scr) {
 #ifdef JC3248W535
     lv_obj_set_style_text_font(lbl_anim, &font_mono_18, 0);
     lv_obj_set_style_text_color(lbl_anim, COL_ACCENT, 0);
+    lv_obj_set_style_bg_color(lbl_anim, COL_BG, 0);
+    lv_obj_set_style_bg_opa(lbl_anim, LV_OPA_COVER, 0);
     lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -5);
 
     // Add touch buttons for HID functions
@@ -327,7 +329,6 @@ static void init_usage_screen(lv_obj_t* scr) {
     lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -15);
 #endif
 
-    // Start hidden
     lv_obj_add_flag(usage_container, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -337,7 +338,8 @@ static void init_bluetooth_screen(lv_obj_t* scr) {
     ble_container = lv_obj_create(scr);
     lv_obj_set_size(ble_container, SCR_W, SCR_H);
     lv_obj_set_pos(ble_container, 0, 0);
-    lv_obj_set_style_bg_opa(ble_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(ble_container, COL_BG, 0);
+    lv_obj_set_style_bg_opa(ble_container, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(ble_container, 0, 0);
     lv_obj_set_style_pad_all(ble_container, 0, 0);
     lv_obj_clear_flag(ble_container, LV_OBJ_FLAG_SCROLLABLE);
@@ -478,6 +480,7 @@ void ui_init(void) {
         lv_obj_add_event_cb(splash_get_root(), global_click_cb, LV_EVENT_CLICKED, NULL);
     }
 
+    // Shared elements on top of scr
     logo_img = lv_image_create(scr);
     lv_image_set_src(logo_img, &logo_dsc);
     lv_obj_set_pos(logo_img, MARGIN, TITLE_Y - 10);
