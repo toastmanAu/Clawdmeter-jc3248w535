@@ -85,7 +85,8 @@ static void make_u_panel(lv_obj_t* par, int y, const char* p_txt, lv_obj_t** o_p
 }
 
 static void global_click_cb(lv_event_t* e) {
-    if (current_screen != SCREEN_BLUETOOTH) ui_toggle_splash();
+    if (current_screen == SCREEN_BLUETOOTH) return;
+    ui_toggle_splash();
 }
 
 void ui_init(void) {
@@ -109,7 +110,7 @@ void ui_init(void) {
     lv_obj_align(h_img, LV_ALIGN_TOP_MID, 5, TITLE_Y - 7);
 
     make_u_panel(usage_container, CONTENT_Y, "Current", &lbl_session_pct, &bar_session, &lbl_session_reset);
-    make_u_panel(usage_container, CONTENT_Y + 95, "Weekly", &lbl_weekly_pct, &bar_weekly, &lbl_weekly_reset);
+    make_u_panel(usage_container, CONTENT_Y + 100, "Weekly", &lbl_weekly_pct, &bar_weekly, &lbl_weekly_reset);
 
     lbl_anim = lv_label_create(usage_container); lv_obj_set_style_text_font(lbl_anim, &font_mono_18, 0); lv_obj_set_style_text_color(lbl_anim, COL_ACCENT, 0);
     lv_obj_set_style_bg_color(lbl_anim, COL_BG, 0); lv_obj_set_style_bg_opa(lbl_anim, LV_OPA_COVER, 0); lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -5);
