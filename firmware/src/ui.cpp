@@ -25,8 +25,8 @@ LV_FONT_DECLARE(font_mono_18);
 #define SCR_W         480
 #define SCR_H         320
 #define MARGIN        20
-#define TITLE_Y       50
-#define CONTENT_Y     110
+#define TITLE_Y       25    // Back to top
+#define CONTENT_Y     75    // Move content up to save space
 #define CONTENT_W     (SCR_W - 2 * MARGIN)
 
 static lv_obj_t* usage_container;
@@ -70,15 +70,17 @@ static void init_icon_dsc_rgb565a8(lv_image_dsc_t* dsc, int w, int h, const uint
 }
 
 static void make_u_panel(lv_obj_t* par, int y, const char* p_txt, lv_obj_t** o_pct, lv_obj_t** o_bar, lv_obj_t** o_res) {
-    lv_obj_t* p = lv_obj_create(par); lv_obj_set_pos(p, MARGIN, y); lv_obj_set_size(p, CONTENT_W, 90);
+    lv_obj_t* p = lv_obj_create(par); lv_obj_set_pos(p, MARGIN, y); lv_obj_set_size(p, CONTENT_W, 85);
     lv_obj_set_style_bg_color(p, COL_PANEL, 0); lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(p, 8, 0); lv_obj_set_style_border_width(p, 0, 0); lv_obj_set_style_pad_all(p, 10, 0);
     *o_pct = lv_label_create(p); lv_label_set_text(*o_pct, "---%"); lv_obj_set_style_text_font(*o_pct, &font_styrene_28, 0); lv_obj_set_style_text_color(*o_pct, COL_TEXT, 0);
     lv_obj_t* pill = lv_label_create(p); lv_label_set_text(pill, p_txt); lv_obj_set_style_text_font(pill, &font_styrene_16, 0);
-    lv_obj_set_style_bg_color(pill, COL_BAR_BG, 0); lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0); lv_obj_set_style_radius(pill, 10, 0); lv_obj_set_style_pad_all(pill, 4, 0); lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_set_style_text_color(pill, THEME_BG, 0); // Dark text on light pill
+    lv_obj_set_style_bg_color(pill, COL_ACCENT, 0); // Amber background for pill
+    lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0); lv_obj_set_style_radius(pill, 10, 0); lv_obj_set_style_pad_all(pill, 4, 0); lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, 0, 0);
     *o_bar = lv_bar_create(p); lv_obj_set_pos(*o_bar, 0, 38); lv_obj_set_size(*o_bar, CONTENT_W - 20, 12);
     lv_obj_set_style_bg_color(*o_bar, COL_BAR_BG, LV_PART_MAIN); lv_obj_set_style_bg_color(*o_bar, THEME_GREEN, LV_PART_INDICATOR);
-    *o_res = lv_label_create(p); lv_label_set_text(*o_res, "---"); lv_obj_set_style_text_font(*o_res, &font_styrene_16, 0); lv_obj_set_style_text_color(*o_res, COL_TEXT, 0); lv_obj_set_pos(*o_res, 0, 58);
+    *o_res = lv_label_create(p); lv_label_set_text(*o_res, "---"); lv_obj_set_style_text_font(*o_res, &font_styrene_16, 0); lv_obj_set_style_text_color(*o_res, COL_TEXT, 0); lv_obj_set_pos(*o_res, 0, 56);
 }
 
 void ui_init(void) {
@@ -102,7 +104,7 @@ void ui_init(void) {
     lv_obj_align(h_img, LV_ALIGN_TOP_MID, 5, TITLE_Y - 7);
 
     make_u_panel(usage_container, CONTENT_Y, "Current", &lbl_session_pct, &bar_session, &lbl_session_reset);
-    make_u_panel(usage_container, CONTENT_Y + 100, "Weekly", &lbl_weekly_pct, &bar_weekly, &lbl_weekly_reset);
+    make_u_panel(usage_container, CONTENT_Y + 95, "Weekly", &lbl_weekly_pct, &bar_weekly, &lbl_weekly_reset);
 
     lbl_anim = lv_label_create(usage_container); lv_obj_set_style_text_font(lbl_anim, &font_mono_18, 0); lv_obj_set_style_text_color(lbl_anim, COL_ACCENT, 0);
     lv_obj_set_style_bg_color(lbl_anim, COL_BG, 0); lv_obj_set_style_bg_opa(lbl_anim, LV_OPA_COVER, 0); lv_obj_align(lbl_anim, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -140,13 +142,13 @@ void ui_init(void) {
     lv_obj_set_style_text_font(lbl_ble_mac, &font_styrene_24, 0); lv_obj_set_pos(lbl_ble_mac, 10, 76);
 
     logo_img = lv_image_create(scr); lv_image_set_src(logo_img, &tiny_logo_dsc); lv_obj_set_pos(logo_img, MARGIN, TITLE_Y - 10);
-    lv_obj_add_flag(logo_img, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_event_cb(logo_img, [](lv_event_t* e) { if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_cycle_screen(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(logo_img, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_event_cb(logo_img, [](lv_event_t* e) { ui_cycle_screen(); }, LV_EVENT_CLICKED, NULL);
 
     battery_img = lv_image_create(scr); lv_image_set_src(battery_img, &battery_dscs[0]); lv_obj_set_pos(battery_img, SCR_W - 48 - MARGIN, TITLE_Y - 10);
 
     splash_init(scr);
     if (splash_get_root()) {
-        lv_obj_add_event_cb(splash_get_root(), [](lv_event_t* e) { if (lv_event_get_code(e) == LV_EVENT_CLICKED) ui_toggle_splash(); }, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(splash_get_root(), [](lv_event_t* e) { ui_toggle_splash(); }, LV_EVENT_CLICKED, NULL);
     }
 
     ui_show_screen(SCREEN_USAGE);
