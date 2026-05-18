@@ -94,7 +94,7 @@ void ui_init(void) {
 
     lv_obj_t* h_img = lv_image_create(usage_container);
     lv_image_set_src(h_img, &main_header_dsc);
-    lv_obj_align(h_img, LV_ALIGN_TOP_MID, 0, TITLE_Y - 10);
+    lv_obj_align(h_img, LV_ALIGN_TOP_MID, 5, TITLE_Y - 7);
 
     make_u_panel(usage_container, CONTENT_Y, "Current", &lbl_session_pct, &bar_session, &lbl_session_reset);
     make_u_panel(usage_container, CONTENT_Y + 95, "Weekly", &lbl_weekly_pct, &bar_weekly, &lbl_weekly_reset);
