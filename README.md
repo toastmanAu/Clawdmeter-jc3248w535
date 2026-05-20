@@ -1,8 +1,8 @@
 # Clawdmeter (Guition JC3248W535 Port)
 
-A small ESP32 dashboard I made for my desk to keep an eye on Claude Code usage.
+A small ESP32 dashboard for your desk to keep an eye on Claude Code usage.
 
-This is a dedicated fork for the **Guition JC3248W535** (also known as the DIYmalls 3.5" ESP32-S3 HMI board). It pairs with your laptop over Bluetooth to display your Claude Code usage in real-time.
+This is a dedicated fork of [HermannBjorgvin/Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter) ported to the **Guition JC3248W535** — a 3.5" 320×480 capacitive-touch HMI board built around the ESP32-S3 (also sold as the DIYmalls 3.5" ESP32-S3 HMI). It pairs with your laptop over Bluetooth and shows your Claude Code usage in real-time.
 
 |              Usage meter              |              Clawd animation screen              |
 | :-----------------------------------: | :----------------------------------------------: |
@@ -10,78 +10,109 @@ This is a dedicated fork for the **Guition JC3248W535** (also known as the DIYma
 
 The splash screen plays pixel-art Clawd animations that get busier when your usage rate climbs. The animations come from [claudepix](https://claudepix.vercel.app), [@amaanbuilds](https://x.com/amaanbuilds)'s library of pixel-art Clawd sprites.
 
+## What's different in this fork
+
+- **Target board**: ported from the Waveshare ESP32-S3-Touch-AMOLED-2.16 (480×480 AMOLED + AXP2101 PMU + QMI8658 IMU) to the **Guition JC3248W535** (320×480 IPS via AXS15231B, no PMU, no IMU).
+- **Inputs**: physical-button + tap inputs replaced with **on-screen "Voice" and "Toggle" buttons** plus tap zones, since the Guition board has no side buttons.
+- **Display pipeline**: 8 MB OPI PSRAM full-frame buffering with a CPU-side pixel transform in `my_flush_cb` to bypass driver rotation bugs and produce a clean 480×320 landscape image.
+- **macOS host support**: in addition to the Linux systemd daemon, a Python + `bleak` daemon runs under launchd on macOS.
+- **No battery telemetry yet**: the Guition board has no PMU, so battery monitoring needs an external voltage divider on an ADC pin — wiring TBD.
+
 ## Screens
 
-- **Usage Dashboard**: Displays session and weekly utilization, reset timers, and an activity spinner.
-- **Bluetooth Status**: Shows connection state, device name, and MAC address.
-- **Splash Screen**: Plays animations based on usage rate.
+- **Usage Dashboard**: session and weekly utilization, reset timers, and an activity spinner.
+- **Bluetooth Status**: connection state, device name, and MAC address.
+- **Splash Screen**: pixel-art Clawd animations whose pick density tracks current usage rate.
 
-**Interaction**:
-- **Tap the Claude Logo** (top left) to cycle between the Usage and Bluetooth screens.
-- **Tap the Background** to toggle the Splash Animation.
-- **On-screen "Voice" button**: Hold to trigger Claude Code's voice mode (`Space`).
-- **On-screen "Toggle" button**: Tap to switch Claude Code modes (`Shift+Tab`).
+## Interaction
+
+- **Tap the Claude logo** (top-left) — cycle between the Usage and Bluetooth screens.
+- **Tap the background** — toggle the Splash animation.
+- **On-screen "Voice" button** — hold to trigger Claude Code's voice mode (`Space`).
+- **On-screen "Toggle" button** — tap to switch Claude Code modes (`Shift+Tab`).
+
+The on-screen buttons act as a BLE HID keyboard, so they work against any focused terminal on the paired machine.
 
 ## Hardware
 
-- **Guition JC3248W535**: ESP32-S3-WROOM-1, 3.5" 320x480 IPS Display (AXS15231B).
-- **8MB OPI PSRAM**: Used for full-frame buffering to ensure glitch-free rendering.
-- **Capacitive Touch**: Fully calibrated for landscape interaction.
-- **Backlight**: Controlled via PWM on GPIO 1.
-- **Battery Meter**: ⚠️ **Not yet wired up.** This board lacks a PMU; battery monitoring requires an external voltage divider connected to an ADC pin.
+- **Guition JC3248W535**: ESP32-S3-WROOM-1, 3.5" 320×480 IPS display (AXS15231B controller).
+- **8 MB OPI PSRAM**: full-frame buffer for glitch-free rendering.
+- **Capacitive touch**: calibrated for landscape interaction.
+- **Backlight**: PWM on GPIO 1.
+- **Battery meter**: ⚠️ not wired — see note above.
 
-## Installation (Linux)
+## Installation
 
-### 1. Flash the firmware
+### Flash the firmware
 
 ```bash
 cd firmware
 pio run -e jc3248w535 -t upload
 ```
 
-### 2. Pair the device
+### Pair the device
 
-The device advertises as **"Claude Controller"**. 
+It advertises as **"Claude Controller"**.
 
 ```bash
-# Scan for the device
+# Linux
 bluetoothctl scan le
-
-# Pair and trust (replace with your board's MAC)
-bluetoothctl pair 8C:BF:EA:0D:B3:11
-bluetoothctl trust 8C:BF:EA:0D:B3:11
+bluetoothctl pair <MAC>
+bluetoothctl trust <MAC>
 ```
 
-### 3. Install the daemon
+On macOS, pairing happens automatically the first time the daemon connects.
 
-The daemon polls your Claude usage every 60 seconds and sends it to the display over BLE.
+### Install the daemon (Linux)
 
 ```bash
-cd daemon
-# Update the path in the service file
-sed -i "s|ExecStart=DAEMON_PATH|ExecStart=$HOME/Clawdmeter/daemon/claude-usage-daemon.sh|" claude-usage-daemon.service
+./install.sh
+systemctl --user start claude-usage-daemon
+```
 
-# Install as a user service
-mkdir -p ~/.config/systemd/user/
-cp claude-usage-daemon.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now claude-usage-daemon.service
+The installer drops a systemd user unit into `~/.config/systemd/user/`, points it at the bash daemon (`daemon/claude-usage-daemon.sh`), and enables it. The daemon will start automatically on login.
+
+### Install the daemon (macOS)
+
+```bash
+./install-mac.sh
+launchctl load ~/Library/LaunchAgents/com.user.claude-usage-daemon.plist
+```
+
+This sets up a Python virtualenv with `bleak`, installs a launchd `LaunchAgent`, and starts the Python daemon (`daemon/claude_usage_daemon.py`) on next login. Logs land in `~/Library/Logs/claude-usage-daemon.{out,err}.log`.
+
+### Flash + monitor shortcut
+
+```bash
+./flash.sh        # Linux: flash + monitor in one go
+./flash-mac.sh    # macOS equivalent
 ```
 
 ## How it works
 
 1. The daemon reads your Claude Code OAuth token from `~/.claude/.credentials.json`.
-2. It polls the Anthropic API for usage headers.
-3. The data is sent to the ESP32 over BLE GATT.
-4. The firmware (running LVGL 9) renders the dashboard. A manual pixel transformation fix is used in the flush callback to bypass driver-level rotation bugs, ensuring a perfect 480x320 landscape image.
-5. The on-screen buttons act as a BLE HID keyboard to send shortcuts to your PC.
+2. It polls the Anthropic API for rate-limit headers every 60s.
+3. The JSON payload is written to the ESP32 over a custom BLE GATT service (`4c41555a-…`).
+4. The firmware (LVGL 9 on Arduino-ESP32 3.x via the pioarduino platform) renders the dashboard. A CPU-side pixel transform in the flush callback works around the AXS15231B's rotation limitations.
+5. The on-screen buttons surface as a BLE HID keyboard, sending `Space` or `Shift+Tab` to whichever machine they're paired to.
+
+## Repo layout
+
+```text
+firmware/    PlatformIO project (env: jc3248w535)
+daemon/      claude-usage-daemon.sh (Linux), claude_usage_daemon.py (macOS)
+assets/      Logos, icons, fonts, demo GIF
+screenshots/ Photos of the device in operation
+tools/       Pixel-art scrape + LVGL asset conversion scripts
+```
 
 ## Credits
 
-- Pixel-art Clawd animation by [@amaanbuilds](https://x.com/amaanbuilds), sourced from [claudepix.vercel.app](https://claudepix.vercel.app).
+- Upstream: [HermannBjorgvin/Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter) — original Panlee SC01 Plus and Waveshare AMOLED implementations.
+- Pixel-art Clawd animations by [@amaanbuilds](https://x.com/amaanbuilds), sourced from [claudepix.vercel.app](https://claudepix.vercel.app).
 - Lucide icon set ([lucide.dev](https://lucide.dev), MIT) for UI glyphs.
-- Porting and hardware adaptation by Gemini CLI.
+- Guition JC3248W535 port and macOS host support adapted with AI coding assistants (Gemini CLI + Claude Code).
 
 ## Licensing gray area warning
 
-The software in this repository uses and adheres to the Anthropic brand guidelines and uses the same proprietary fonts that Anthropic has a license for but this software uses without permission as well as using assets from Anthropic such as the copyrighted Clawd mascot so even though the code in this repo is non-proprietary I will not license it myself under a copyleft license since this repo includes proprietary fonts and copyrighted assets. Please be aware of this if you fork or copy the code from this repo. **You have been warned!**
+The software in this repository uses and adheres to the Anthropic brand guidelines, and uses the same proprietary fonts that Anthropic has a license for but this software uses without permission, as well as using assets from Anthropic such as the copyrighted Clawd mascot. Even though the code in this repo is non-proprietary, it is not licensed under a copyleft license because this repo includes proprietary fonts and copyrighted assets. Please be aware of this if you fork or copy code from this repo. **You have been warned!**
