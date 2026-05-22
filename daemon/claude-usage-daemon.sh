@@ -105,9 +105,6 @@ connect_device() {
         log "Invalidating cached MAC, will rescan by name"
         rm -f "$SAVED_MAC_FILE"
     fi
-    # Remove from bluez so the next scan won't re-pick this dead MAC.
-    # If the device comes back online it'll re-advertise and be re-discovered.
-    bluetoothctl remove "$DEVICE_MAC" &>/dev/null
     DEVICE_MAC=""
     return 1
 }

@@ -112,7 +112,11 @@ static void check_serial_cmd() {
         char c = Serial.read();
         if (c == '\n' || c == '\r') {
             cmd_buf[cmd_pos] = '\0';
-            if (strcmp(cmd_buf, "screenshot") == 0) send_screenshot();
+            if (strcmp(cmd_buf, "screenshot") == 0) {
+                send_screenshot();
+            } else if (strcmp(cmd_buf, "clear_bonds") == 0) {
+                ble_clear_bonds();
+            }
             cmd_pos = 0;
         } else if (cmd_pos < 63) cmd_buf[cmd_pos++] = c;
     }

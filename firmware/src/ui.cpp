@@ -144,6 +144,12 @@ void ui_init(void) {
     lv_obj_set_pos(p_info, MARGIN, CONTENT_Y); lv_obj_set_size(p_info, CONTENT_W, 110);
     lv_obj_set_style_bg_color(p_info, COL_PANEL, 0); lv_obj_set_style_bg_opa(p_info, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(p_info, 0, 0); lv_obj_set_style_radius(p_info, 8, 0);
+    lv_obj_add_flag(p_info, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(p_info, [](lv_event_t* e) {
+        ble_clear_bonds();
+        lv_label_set_text(lbl_ble_status, "Resetting BLE...");
+        lv_obj_set_style_text_color(lbl_ble_status, THEME_AMBER, 0);
+    }, LV_EVENT_CLICKED, NULL);
 
     lbl_ble_status = lv_label_create(p_info); lv_label_set_text(lbl_ble_status, "Initializing...");
     lv_obj_set_style_text_font(lbl_ble_status, &font_styrene_28, 0); lv_obj_set_pos(lbl_ble_status, 10, 10);
